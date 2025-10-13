@@ -3,20 +3,18 @@ import numpy as np
 import pandas as pd
 import torch
 import gc
+import os  # ✅ --- 追加: trajectory appendのためのos ---
 from joblib import Parallel, delayed
-
 from ase.io import read, write
-from ase.filters import ExpCellFilter 
+from ase.filters import ExpCellFilter
 from ase.optimize import BFGS
 from ase.md.velocitydistribution import MaxwellBoltzmannDistribution
 from ase.md.npt import NPT
 from ase import units, Atoms
-
 from chgnet.model.dynamics import CHGNetCalculator
 from mattersim.forcefield import MatterSimCalculator
 from orb_models.forcefield import pretrained
 from orb_models.forcefield.calculator import ORBCalculator
-
 def get_calculator(model_name, use_device='cuda'):
     if model_name == "CHGNet": return CHGNetCalculator(use_device=use_device)
     elif model_name == "MatterSim": return MatterSimCalculator(device=use_device)
@@ -24,11 +22,9 @@ def get_calculator(model_name, use_device='cuda'):
         orbff = pretrained.orb_v3_conservative_inf_omat(device=use_device, precision="float32-high")
         return ORBCalculator(orbff, device=use_device)
     else: raise ValueError(f"Unknown model specified: {model_name}")
-
 def clear_memory():
     gc.collect()
     if torch.cuda.is_available(): torch.cuda.empty_cache()
-
 def optimize_structure(atoms_obj, model_name, fmax=0.01):
     energies, lattice_constants = [], []
     atoms_obj.calc = get_calculator(model_name)
@@ -39,9 +35,8 @@ def optimize_structure(atoms_obj, model_name, fmax=0.01):
         lattice_constants.append(np.mean(a.atoms.get_cell().lengths()))
     opt.attach(save_step_data); opt.run(fmax=fmax)
     return atoms_obj, energies, lattice_constants
-
 def _run_single_temp_npt(params):
-    (model_name, sim_mode, temp, initial_structure_dict, magmom_specie, time_step, 
+    (model_name, sim_mode, temp, initial_structure_dict, magmom_specie, time_step,
      eq_steps, pressure, ttime, pfactor, use_device) = params
     atoms, calc, dyn = None, None, None
     try:
@@ -84,53 +79,60 @@ def _run_single_temp_npt(params):
         return None
     finally:
         del atoms, calc, dyn; clear_memory()
-
 def run_npt_simulation_parallel(initial_atoms, model_name, sim_mode, magmom_specie, temp_range, time_step, eq_steps,
-    pressure, n_gpu_jobs, use_device='cuda', progress_callback=None, traj_filepath=None):
+    pressure, n_gpu_jobs, use_device='cuda', progress_callback=None, traj_filepath=None, append_traj=False):
     ttime = 25 * units.fs
     pfactor = 2e6 * units.GPa * (units.fs**2)
     temperatures = np.arange(temp_range[0], temp_range[1] + temp_range[2], temp_range[2])
     all_results = []
     last_structure_dict = {'numbers': initial_atoms.get_atomic_numbers(), 'positions': initial_atoms.get_positions(), 'cell': initial_atoms.get_cell(), 'pbc': initial_atoms.get_pbc()}
     num_batches = int(np.ceil(len(temperatures) / n_gpu_jobs))
-    
+   
     for i in range(num_batches):
         if progress_callback: progress_callback(i, num_batches, f"Batch {i+1}/{num_batches} running...", None)
         batch_start_index, batch_end_index = i * n_gpu_jobs, min((i + 1) * n_gpu_jobs, len(temperatures))
         temp_batch = temperatures[batch_start_index:batch_end_index]
         if not len(temp_batch) > 0: continue
-        
+       
         tasks = [(model_name, sim_mode, t, last_structure_dict, magmom_specie, time_step, eq_steps, pressure, ttime, pfactor, use_device) for t in temp_batch]
         batch_results = Parallel(n_jobs=n_gpu_jobs, mmap_mode='r+')(delayed(_run_single_temp_npt)(task) for task in tasks)
-        
+       
         valid_results = [res for res in batch_results if res is not None]
         if not valid_results: break
         all_results.extend(valid_results)
-        highest_temp_result = max(valid_results, key=lambda x: x[0])
-        last_structure_dict = highest_temp_result[1]
-    
+        # 🔧 --- 修正: 降温時はmin_temp_resultを使用（連続性のため、シーケンシャルに近づける）
+        if temp_range[2] > 0:  # 昇温
+            next_initial_result = max(valid_results, key=lambda x: x[0])
+        else:  # 降温
+            next_initial_result = min(valid_results, key=lambda x: x[0])  # 最低tempのfinalを次initialに（ただし並列なので近似）
+        last_structure_dict = next_initial_result[1]
+   
         if progress_callback:
-            all_results.sort(key=lambda x: x[0])
+            # 🔧 --- 修正: sortを削除、実行順でpartial_dfを作成（時間順保持）
             temp_df_list = [pd.DataFrame({k: v for k, v in res[2].items() if k not in ["positions", "cells"]}) for res in all_results]
             partial_df = pd.concat(temp_df_list, ignore_index=True)
             progress_callback(i + 1, num_batches, f"Batch {i+1}/{num_batches} finished.", partial_df)
-
     if progress_callback: progress_callback(num_batches, num_batches, "NPT simulation finished.", None)
-    if not all_results: return pd.DataFrame()
-    
-    all_results.sort(key=lambda x: x[0])
-    
+    if not all_results: return pd.DataFrame(), last_structure_dict
+   
+    # 🔧 --- 修正: sortを削除（温度順ではなく実行順でDataFrameを作成）
+    # all_results.sort(key=lambda x: x[0])  # コメントアウト: これが原因で冷却時set_tempsが昇順に並び替わる
+   
     if traj_filepath:
         atomic_numbers = initial_atoms.get_atomic_numbers()
-        all_frames = [Atoms(numbers=atomic_numbers, positions=p, cell=c, pbc=True) for _, _, res in all_results for p, c in zip(res.get("positions", []), res.get("cells", []))]
+        new_frames = [Atoms(numbers=atomic_numbers, positions=p, cell=c, pbc=True) for _, _, res in all_results for p, c in zip(res.get("positions", []), res.get("cells", []))]
+        if append_traj and os.path.exists(traj_filepath):
+            existing_frames = read(traj_filepath, index=':')
+        else:
+            existing_frames = []
+        all_frames = existing_frames + new_frames
         if all_frames: write(traj_filepath, all_frames, format='extxyz')
-
     # ✅ 修正点: バグのあったリスト内包表記を、より安全なforループに修正
     df_list = []
     for temp, final_struct, result_dict in all_results:
         # 構造データをクリーンアップ
         clean_dict = {k: v for k, v in result_dict.items() if k not in ["positions", "cells"]}
         df_list.append(pd.DataFrame(clean_dict))
-    
+   
     final_df = pd.concat(df_list, ignore_index=True)
-    return final_df
+    return final_df, last_structure_dict
