@@ -49,7 +49,7 @@ with st.sidebar:
     with st.expander("NPT Simulation Details", expanded=True):
         magmom_specie = st.text_input("Species for Magmom Tracking", "Co") if selected_model == "CHGNet" else None
         temp_start, temp_end = st.number_input("Start Temp (K)", 1), st.number_input("End Temp (K)", 1000)
-        temp_step, eq_steps = st.number_input("Temp Step (K)", 5), st.number_input("Steps per Temp", 2000)
+        temp_step, eq_steps = st.number_input("Temp Step (K)", 1,100,5), st.number_input("Steps per Temp", 2000)
         n_gpu_jobs = st.slider("Parallel Jobs", 1, 8, 3)
         # ✅ --- ここに追加 --- (冷却オプションのトグル)
         enable_cooling = st.checkbox("Enable Cooling After Heating (same rate)")
@@ -124,33 +124,50 @@ with tab2:
         if selected_project:
             project_path = os.path.join(PROJECTS_DIR, selected_project)
             st.subheader(f"Results for: `{selected_project}`")
+
+            # ✅ --- ここから復活 --- (実行時間とプロット表示のコードを再追加)
+            # 実行時間を表示
             time_file = os.path.join(project_path, "execution_time.txt")
             if os.path.exists(time_file):
-                with open(time_file, "r") as f: st.metric("Total Calculation Time", f"{f.read()} seconds")
+                with open(time_file, "r") as f:
+                    st.metric("Total Calculation Time", f"{f.read()} seconds")
+            
+            # 温度依存性のプロット画像を表示
             st.subheader("Temperature-Dependent Properties")
             npt_vs_temp_png = os.path.join(project_path, "npt_vs_temp.png")
             if os.path.exists(npt_vs_temp_png):
                 st.image(npt_vs_temp_png)
             else:
                 st.info("NPT summary plot not found for this project (or it was an optimization-only job).")
+            # ✅ --- ここまで復活 ---
+
             st.subheader("Download Artifacts")
-            # 🔄 --- ここから変更 --- (ダウンロードファイルリストを動的に)
+            
+            # ダウンロードファイルリスト (変更なし)
             files_to_download = {
                 "Full Data (CSV)": "npt_summary_full.csv",
+                "Statistical Summary (CSV)": "npt_summary_stats.csv",
                 "Last Step Data (CSV)": "npt_last_steps.csv",
+                "Magmoms per Atom (CSV)": "magmoms_per_atom.csv",
                 "Trajectory (XYZ)": "trajectory.xyz",
-                "Optimized Structure (CIF)": "optimized_structure.cif" # ✅ 追加
+                "Optimized Structure (CIF)": "optimized_structure.cif"
             }
+            
             available_files = {label: filename for label, filename in files_to_download.items() if os.path.exists(os.path.join(project_path, filename))}
-           
+            
             if available_files:
-                cols = st.columns(len(available_files))
-                for i, (label, filename) in enumerate(available_files.items()):
+                num_files = len(available_files)
+                cols = st.columns(num_files if num_files <= 5 else 5)
+                col_idx = 0
+                for label, filename in available_files.items():
+                    current_col = cols[col_idx % 5]
                     filepath = os.path.join(project_path, filename)
-                    with cols[i], open(filepath, "rb") as f:
+                    with current_col, open(filepath, "rb") as f:
                         st.download_button(label, f.read(), file_name=filename, use_container_width=True)
+                    col_idx += 1
             else:
                 st.warning("No downloadable files found for this project.")
+            
             if st.button(f"🗑️ Delete Project '{selected_project}'", use_container_width=True):
                 shutil.rmtree(project_path); st.success(f"Project '{selected_project}' deleted."); st.rerun()
 # --- タブ3: CIF Structure Editor ---
