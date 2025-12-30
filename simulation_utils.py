@@ -16,6 +16,7 @@ from chgnet.model.dynamics import CHGNetCalculator
 from mattersim.forcefield import MatterSimCalculator
 from orb_models.forcefield import pretrained
 from orb_models.forcefield.calculator import ORBCalculator
+from nequip.ase import NequIPCalculator
 
 def get_calculator(model_name, use_device='cuda'):
     if model_name == "CHGNet": return CHGNetCalculator(use_device=use_device)
@@ -23,6 +24,14 @@ def get_calculator(model_name, use_device='cuda'):
     elif model_name == "Orb":
         orbff = pretrained.orb_v3_conservative_inf_omat(device=use_device, precision="float32-high")
         return ORBCalculator(orbff, device=use_device)
+    elif model_name == "NequipOLM":
+        model_path = "/workspace/NequipOLM_model/nequip-oam-l.nequip.pt2"
+        if not os.path.exists(model_path):
+            raise FileNotFoundError(
+                f"NequipOLM model not found at '{model_path}'. "
+                f"Please compile the model and place it in the 'NequipOLM_model' directory."
+            )
+        return NequIPCalculator.from_compiled_model(model_path, device=use_device)
     else: raise ValueError(f"Unknown model specified: {model_name}")
 
 def clear_memory():

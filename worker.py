@@ -4,6 +4,7 @@ import time
 import os
 import json
 import pandas as pd
+import torch
 from ase.io import read, write
 from ase import Atoms
 import matplotlib
@@ -13,14 +14,14 @@ import simulation_utils as sim
 import visualization as viz
 import notifications as notify
 
-# --- 定数定義 --- (変更なし)
+# --- 定数定義 ---
 PROJECTS_DIR = "simulation_projects"
 QUEUE_FILE = os.path.join(PROJECTS_DIR, "queue.json")
 CURRENT_JOB_FILE = os.path.join(PROJECTS_DIR, "current_job.json")
 REALTIME_DATA_FILE = os.path.join(PROJECTS_DIR, "realtime_data.csv")
 
 def run_job(job_details):
-    # ... (関数の前半部分は変更なし) ...
+    # ... (この関数の中身は変更なし) ...
     project_name = job_details['project_name']
     original_filename = job_details['original_filename']
     model_name = job_details['model']
@@ -47,7 +48,6 @@ def run_job(job_details):
             return
         
         else: # job_type == "full_simulation"
-            # ... (NPTシミュレーションのセットアップ部分は変更なし) ...
             notify.send_to_discord(f"🚀 NPT simulation started for: `{project_name}`", color=3447003)
             sim_mode = job_details['sim_mode']
             params = job_details['params']
@@ -62,7 +62,6 @@ def run_job(job_details):
 
             traj_filepath = os.path.join(project_path, "trajectory.xyz")
             
-            # --- 昇温シミュレーション ---
             notify.send_to_discord(f"🔥 Heating phase started for: `{project_name}`", color=3447003)
             npt_df_heating, heating_final_struct = sim.run_npt_simulation_parallel(
                 initial_atoms=opt_atoms, model_name=model_name, sim_mode=sim_mode,
@@ -76,7 +75,6 @@ def run_job(job_details):
 
             npt_df = npt_df_heating
             
-            # --- 冷却オプションの場合 ---
             if enable_cooling:
                 notify.send_to_discord(f"❄️ Cooling phase started for: `{project_name}` (from {temp_end}K to {temp_start}K)", color=3447003)
                 cooling_temp_range = (temp_end, temp_start, -temp_step)
@@ -122,48 +120,29 @@ def run_job(job_details):
                     print(f"Error saving npt_last_steps.csv for {project_name}: {e}")
 
                 try:
-                    # 集計対象の列を定義 ('set_temps' 以外)
                     agg_cols = [col for col in npt_df.columns if col != 'set_temps']
-                    
-                    # 'set_temps' でグループ化し、平均(mean)と標準偏差(std)を計算
                     stats_df = npt_df.groupby('set_temps')[agg_cols].agg(['mean', 'std'])
-                    
-                    # マルチレベルの列インデックスをフラットな名前に変換
-                    # (例: ('volumes', 'mean') -> 'volumes_mean')
                     stats_df.columns = ['_'.join(map(str, col)).strip() for col in stats_df.columns.values]
-                    
-                    # ご要望に応じて列名を変更 (例: 'volumes_mean' -> 'volumes')
-                    # 'volumes_std' はそのまま残ります
                     rename_mapping = {f'{col}_mean': col for col in agg_cols}
                     stats_df = stats_df.rename(columns=rename_mapping)
-                    
-                    # インデックスになっている 'set_temps' を列に戻す
                     stats_df = stats_df.reset_index()
-                    
-                    # 新しいCSVファイルとして保存
                     output_path = os.path.join(project_path, "npt_summary_stats.csv")
                     stats_df.to_csv(output_path, index=False, float_format='%.6f')
-                    
                 except Exception as e:
                     print(f"Error generating statistical summary for {project_name}: {e}")
                     notify.send_to_discord(f"⚠️ Warning: Failed to generate statistical summary for `{project_name}`.", color=16776960)
                 
-                # ✅ --- ここから追加 ---
-                # magmomデータ専用のCSVファイルを作成
                 try:
                     magmom_specie = params.get('magmom_specie')
                     if magmom_specie:
-                        # "Co_1", "Co_2"のような列名を持つ列を抽出
                         magmom_cols = [col for col in npt_df.columns if col.startswith(f"{magmom_specie}_")]
                         if magmom_cols:
-                            # ステップ番号（DataFrameのインデックス）とmagmomデータで新しいDataFrameを作成
                             magmom_df = npt_df[magmom_cols].copy()
                             magmom_df.insert(0, 'step', range(len(magmom_df)))
                             magmom_df.to_csv(os.path.join(project_path, "magmoms_per_atom.csv"), index=False)
                 except Exception as e:
                     print(f"Error saving magmoms_per_atom.csv for {project_name}: {e}")
                     notify.send_to_discord(f"⚠️ Warning: Failed to generate magmom-per-atom CSV for `{project_name}`.", color=16776960)
-                # ✅ --- ここまで追加 ---
 
                 cooling_str = " with cooling" if enable_cooling else ""
                 notify.send_to_discord(f"🎉 NPT simulation finished: `{project_name}`{cooling_str}\nTime: {elapsed_time:.2f} sec.", color=3066993)
@@ -175,7 +154,6 @@ def run_job(job_details):
         print(error_msg)
         notify.send_to_discord(error_msg, color=15158332)
 
-# --- main_worker_loop() は変更なし ---
 def main_worker_loop():
     print("Worker started. Watching for jobs...")
     while True:
@@ -187,17 +165,29 @@ def main_worker_loop():
                         with open(QUEUE_FILE, 'r') as f: queue = json.load(f)
                     except json.JSONDecodeError:
                         queue = []
+                
                 if queue:
                     next_job = queue.pop(0)
-                    with open(CURRENT_JOB_FILE, 'w') as f: json.dump(next_job, f)
-                    with open(QUEUE_FILE, 'w') as f: json.dump(queue, f)
-                    run_job(next_job)
-                    if os.path.exists(CURRENT_JOB_FILE): os.remove(CURRENT_JOB_FILE)
-                    if os.path.exists(REALTIME_DATA_FILE): os.remove(REALTIME_DATA_FILE)
+                    try:
+                        with open(CURRENT_JOB_FILE, 'w') as f: json.dump(next_job, f)
+                        with open(QUEUE_FILE, 'w') as f: json.dump(queue, f)
+                        run_job(next_job)
+                    finally:
+                        # This block runs whether run_job succeeds or fails
+                        if os.path.exists(CURRENT_JOB_FILE): os.remove(CURRENT_JOB_FILE)
+                        if os.path.exists(REALTIME_DATA_FILE): os.remove(REALTIME_DATA_FILE)
+                        
+                        # Release GPU memory
+                        if torch.cuda.is_available():
+                            print("Clearing CUDA cache...")
+                            torch.cuda.empty_cache()
+                            print("CUDA cache cleared.")
+
         except Exception as e:
             print(f"Error in worker main loop: {e}")
             if os.path.exists(CURRENT_JOB_FILE): os.remove(CURRENT_JOB_FILE)
             if os.path.exists(REALTIME_DATA_FILE): os.remove(REALTIME_DATA_FILE)
+        
         time.sleep(5)
 
 if __name__ == "__main__":

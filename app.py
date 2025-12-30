@@ -14,6 +14,7 @@ import visualization as viz
 import notifications as notify
 import cif_editor as cif_edit
 from streamlit_autorefresh import st_autorefresh
+import subprocess
 # --- 定数と状態管理ファイルのパス ---
 PROJECTS_DIR = "simulation_projects"
 QUEUE_FILE = os.path.join(PROJECTS_DIR, "queue.json")
@@ -38,7 +39,7 @@ tab1, tab2, tab3, tab4 = st.tabs(["🚀 Simulation Dashboard", "📂 Project Bro
 # --- サイドバー ---
 with st.sidebar:
     st.header("1. Model Selection")
-    selected_model = st.selectbox("Select ML Force Field", ["CHGNet", "MatterSim", "Orb"])
+    selected_model = st.selectbox("Select ML Force Field", ["CHGNet", "MatterSim", "Orb", "NequipOLM"])
     sim_mode = st.selectbox("Simulation Mode", ["Realistic (ISIF=3)", "Legacy (Orthorombic)"])
     st.header("2. Structure Input")
     uploaded_files = st.file_uploader("Upload CIF Files for NPT Simulation", type=["cif"], accept_multiple_files=True)
@@ -83,6 +84,55 @@ with st.sidebar:
             st.rerun()
     st.header("5. Control")
     if st.button("🔄 Refresh Status"): st.rerun()
+
+    # --- Maintenance Section ---
+    st.title("⚠️ Maintenance")
+    if st.button("Force Restart All Processes"):
+        # Use session state to manage the confirmation flow
+        st.session_state.confirm_restart = True
+
+    # If the button has been clicked, show the confirmation dialog
+    if 'confirm_restart' in st.session_state and st.session_state.confirm_restart:
+        st.warning("**Are you sure?** This will delete all queued and running jobs and restart the entire application.")
+        
+        # Use columns for side-by-side buttons
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            if st.button("✅ Confirm Restart"):
+                st.session_state.confirm_restart = False
+                
+                # The restart script is in the root of the workspace
+                restart_script_path = "/workspace/force_restart.sh"
+                
+                try:
+                    # Ensure the script is executable
+                    subprocess.run(["chmod", "+x", restart_script_path], check=True, capture_output=True, text=True)
+                    
+                    # Execute the script in the background
+                    # We use Popen so the Streamlit app doesn't wait for it to finish
+                    subprocess.Popen([restart_script_path], cwd="/workspace")
+                    
+                    st.success("Restart command issued! The application will restart shortly.")
+                    st.info("You may need to refresh this page in 20-30 seconds.")
+                    
+                    # Optional: A small delay to let the user read the message
+                    time.sleep(5)
+                    # Clear the confirmation state and rerun to reset the UI
+                    st.session_state.confirm_restart = False
+                    st.rerun()
+
+                except FileNotFoundError:
+                    st.error(f"Error: Restart script not found at {restart_script_path}")
+                except subprocess.CalledProcessError as e:
+                    st.error(f"Error making restart script executable: {e.stderr}")
+                except Exception as e:
+                    st.error(f"An unexpected error occurred: {e}")
+
+        with col2:
+            if st.button("❌ Cancel"):
+                st.session_state.confirm_restart = False
+                st.rerun()
 # --- タブ1: Simulation Dashboard ---
 with tab1:
     st.header("Job Queue Status")
@@ -201,7 +251,7 @@ with tab4:
    
     col1, col2 = st.columns(2)
     with col1:
-        opt_model = st.selectbox("Select ML Force Field", ["CHGNet", "MatterSim", "Orb"], key="optimizer_model")
+        opt_model = st.selectbox("Select ML Force Field", ["CHGNet", "MatterSim", "Orb", "NequipOLM"], key="optimizer_model")
     with col2:
         opt_prefix = st.text_input("Project Name Prefix", value=datetime.now().strftime("%Y%m%d"), key="optimizer_prefix")
     if st.button("⚙️ Optimize Structure & Add to Queue", type="primary", use_container_width=True):
