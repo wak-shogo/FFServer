@@ -1,3 +1,11 @@
 /simulation_projects/*
 /CHGNetOnly/*
 *.xyz
+/matris_cache/
+*.log
+*.pid
+*.pt2
+*.nequip.pt
+NequipOLM_model/
+__pycache__/
+.ipynb_checkpoints/
