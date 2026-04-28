@@ -16,7 +16,7 @@ docker rm $CONTAINER_NAME >/dev/null 2>&1
 echo "Starting Docker container ($CONTAINER_NAME) in background..."
 # 1. Docker コンテナをバックグラウンド (-d) で起動し、名前 (--name) をつける
 #    (元の run_container.sh の内容とほぼ同じです)
-docker run --gpus all -d --name $CONTAINER_NAME \
+docker run --gpus all --runtime=nvidia -d --name $CONTAINER_NAME \
   -p 8888:8888 -p 8501:8501 \
   -v $(pwd):/workspace \
   -v $(pwd)/entrypoint.sh:/usr/local/bin/entrypoint.sh \
