@@ -66,7 +66,8 @@ def plot_temperature_dependent_properties(df, moving_avg_window=100):
     df_cooling = df[df['phase'] == 'cooling']
     has_cooling = not df_cooling.empty
     
-    fig, axes = plt.subplots(1, 3, figsize=(21, 6))
+    fig, axes = plt.subplots(2, 2, figsize=(16, 12))
+    axes = axes.flatten()
    
     # --- 移動平均の計算（全体で一括、ただしプロット時分離） ---
     b = np.ones(moving_avg_window) / moving_avg_window
@@ -153,6 +154,23 @@ def plot_temperature_dependent_properties(df, moving_avg_window=100):
     axes[2].set_title("Lattice Angles vs. Temperature")
     axes[2].legend()
     axes[2].grid(True)
+
+    # 4. エネルギー vs 温度
+    ene_mean_all = np.convolve(df["energies"], b, mode='valid')
+    ene_mean_heating = ene_mean_all[:len(df_heating) - moving_avg_window + 1] if has_cooling else ene_mean_all
+    if has_cooling:
+        ene_mean_cooling = ene_mean_all[len(df_heating) - moving_avg_window + 1 : adjusted_len]
+    else:
+        ene_mean_cooling = np.array([])
+    axes[3].plot(temp_mean_heating, ene_mean_heating, 'b-', label='Heating')
+    if has_cooling:
+        axes[3].plot(temp_mean_cooling, ene_mean_cooling, 'r--', label='Cooling')
+    axes[3].set_xlabel("Temperature (K)")
+    axes[3].set_ylabel("Total Energy (eV)")
+    axes[3].set_title("Total Energy vs. Temperature")
+    axes[3].legend()
+    axes[3].grid(True)
+
     plt.tight_layout()
     return fig
 def get_df_download_link(df, filename, link_text):
