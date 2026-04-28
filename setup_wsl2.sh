@@ -52,6 +52,8 @@ fi
 
 # 5. Docker デーモンの設定と再起動
 echo "[5/5] Docker サービスを起動中..."
+sudo nvidia-ctk runtime configure --runtime=docker
+sudo systemctl restart docker
 sudo systemctl enable docker
 sudo systemctl start docker
 
