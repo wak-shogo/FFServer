@@ -195,17 +195,19 @@ def _run_single_temp_npt(params):
         magmom_indices = []
         magmom_column_keys = []
         if magmom_specie:
+            species_list = [s.strip() for s in magmom_specie.split(',')]
             from chgnet.model.dynamics import CHGNetCalculator
             if isinstance(atoms.calc, CHGNetCalculator):
                 symbols = atoms.get_chemical_symbols()
-                count = 1
-                for i, s in enumerate(symbols):
-                    if s == magmom_specie:
-                        magmom_indices.append(i)
-                        key = f"{magmom_specie}_{count}"
-                        magmom_column_keys.append(key)
-                        results_data[key] = [] 
-                        count += 1
+                for target_s in species_list:
+                    count = 1
+                    for i, s in enumerate(symbols):
+                        if s == target_s:
+                            magmom_indices.append(i)
+                            key = f"{target_s}_{count}"
+                            magmom_column_keys.append(key)
+                            results_data[key] = [] 
+                            count += 1
 
         def log_step_data():
             # Check cancellation

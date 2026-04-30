@@ -49,9 +49,9 @@ with st.sidebar:
     project_prefix = st.text_input("Project Name Prefix", value=default_prefix)
     st.header("4. NPT Simulation Parameters")
     with st.expander("NPT Simulation Details", expanded=True):
-        magmom_specie = st.text_input("Species for Magmom Tracking", "Co") if selected_model == "CHGNet" else None
+        magmom_specie = st.text_input("Species for Magmom Tracking (comma separated)", "Co", help="Enter one or more elements to track (e.g., 'Co, Fe, Ni')") if selected_model == "CHGNet" else None
         
-        temp_start, temp_end = st.number_input("Start Temp (K)", 1), st.number_input("End Temp (K)", 1000)
+        temp_start, temp_end = st.number_input("Start Temp (K)", 1), st.number_input("End Temp (K)", value=1000)
         temp_step, eq_steps = st.number_input("Temp Step (K)", 1,100,5), st.number_input("Steps per Temp", 2000)
         n_gpu_jobs = st.slider("Parallel Jobs", 1, 8, 3)
         # ✅ --- ここに追加 --- (冷却オプションのトグル)
@@ -328,14 +328,17 @@ with tab3:
     editor_file = st.file_uploader("Upload CIF for Editing", type=["cif"], key="editor_uploader")
     
     if editor_file:
+        operation = st.radio("Operation Type", ["Substitution", "Vacancy"], horizontal=True, help="Substitution: Replace target element with another.\nVacancy: Remove target element sites.")
+        is_vacancy = (operation == "Vacancy")
+
         # カラムを5つに増やしてモード選択を追加
         col1, col2, col3, col4, col5 = st.columns(5)
         
-        with col1: replace_from = st.text_input("Element to Replace", "Bi")
-        with col2: replace_to = st.text_input("Replace With", "Mg")
+        with col1: replace_from = st.text_input("Target Element", "Bi")
+        with col2: replace_to = st.text_input("Replace With", "Mg", disabled=is_vacancy)
         with col3: percentage = st.number_input("Percentage (%)", 0.0, 100.0, 10.0, 1.0)
         # 新しいオプション: 置換モードの選択
-        with col4: mode_select = st.selectbox("Mode", ["Random", "Sequential"], help="Random: Randomly select sites.\nSequential: Select sites from top to bottom.")
+        with col4: mode_select = st.selectbox("Selection Mode", ["Random", "Sequential"], help="Random: Randomly select sites.\nSequential: Select sites from top to bottom.")
         with col5: st.write(""); st.write(""); generate_button = st.button("Generate", type="primary")
         
         if generate_button:
@@ -347,7 +350,8 @@ with tab3:
                 replace_from, 
                 replace_to, 
                 percentage / 100.0, 
-                mode=mode_select.lower()
+                mode=mode_select.lower(),
+                is_vacancy=is_vacancy
             )
             
             st.subheader("Processing Log")
@@ -360,7 +364,8 @@ with tab3:
                 st.subheader("Download Modified File")
                 # ファイル名にモードも含めると管理しやすいです
                 mode_suffix = "seq" if mode_select == "Sequential" else "rnd"
-                new_filename = f"{os.path.splitext(editor_file.name)[0]}_{replace_from}2{replace_to}_{int(percentage)}pct_{mode_suffix}.cif"
+                op_suffix = "vac" if is_vacancy else f"2{replace_to}"
+                new_filename = f"{os.path.splitext(editor_file.name)[0]}_{replace_from}{op_suffix}_{int(percentage)}pct_{mode_suffix}.cif"
                 st.download_button(label=f"Download '{new_filename}'", data=modified_content, file_name=new_filename, mime="chemical/x-cif")
 with tab4:
     st.header("🔬 Structure Optimizer")

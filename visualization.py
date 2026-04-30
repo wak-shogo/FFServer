@@ -20,11 +20,11 @@ def plot_npt_results(df, magmom_specie):
     if df.empty: return plt.figure()
     fig, axes = plt.subplots(2, 3, figsize=(18, 10))
     axes = axes.flatten()
-    cols = ['energies', 'instant_temps', 'volumes', 'a_lengths', f"{magmom_specie}_magmom"]
-    titles = ['Energy', 'Temperature', 'Volume', 'Lattice Parameter', f'Avg {magmom_specie} Magmom']
-    ylabels = ['Energy (eV)', 'Temperature (K)', 'Volume (Å³)', 'Lattice Parameters (Å)', f'Magmom (μB)']
+    cols = ['energies', 'instant_temps', 'volumes', 'a_lengths']
+    titles = ['Energy', 'Temperature', 'Volume', 'Lattice Parameter', 'Avg Magmoms']
+    ylabels = ['Energy (eV)', 'Temperature (K)', 'Volume (Å³)', 'Lattice Parameters (Å)', 'Magmom (μB)']
    
-    for i in range(5):
+    for i in range(4):
         axes[i].set(xlabel='Step', title=f'{titles[i]} Evolution', xlim=(0, len(df)), ylabel=ylabels[i])
         axes[i].grid(True)
         if i == 0: axes[i].plot(df.index, df[cols[i]], 'b-')
@@ -38,8 +38,20 @@ def plot_npt_results(df, magmom_specie):
             axes[i].plot(df.index, df['b_lengths'], label='b')
             axes[i].plot(df.index, df['c_lengths'], label='c')
             axes[i].legend()
-        if i == 4 and cols[i] in df.columns:
-            axes[i].plot(df.index, df[cols[i]], 'o-', color='purple', markersize=2)
+    
+    # Plot Magmoms for all specified species
+    ax_mag = axes[4]
+    ax_mag.set(xlabel='Step', title='Avg Magmoms Evolution', xlim=(0, len(df)), ylabel='Magmom (μB)')
+    ax_mag.grid(True)
+    if magmom_specie:
+        species_list = [s.strip() for s in magmom_specie.split(',')]
+        colors = plt.cm.tab10(np.linspace(0, 1, len(species_list)))
+        for idx, s in enumerate(species_list):
+            mag_cols = [col for col in df.columns if col.startswith(f"{s}_")]
+            if mag_cols:
+                avg_mag = df[mag_cols].mean(axis=1)
+                ax_mag.plot(df.index, avg_mag, label=s, color=colors[idx])
+        ax_mag.legend()
    
     axes[5].axis('off')
     plt.tight_layout()

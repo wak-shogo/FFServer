@@ -184,7 +184,11 @@ def run_job(job_details):
                 try:
                     magmom_specie = params.get('magmom_specie')
                     if magmom_specie:
-                        magmom_cols = [col for col in npt_df.columns if col.startswith(f"{magmom_specie}_")]
+                        species_list = [s.strip() for s in magmom_specie.split(',')]
+                        magmom_cols = []
+                        for s in species_list:
+                            magmom_cols.extend([col for col in npt_df.columns if col.startswith(f"{s}_")])
+                        
                         if magmom_cols:
                             magmom_df = npt_df[magmom_cols].copy()
                             magmom_df.insert(0, 'step', range(len(magmom_df)))

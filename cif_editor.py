@@ -2,13 +2,14 @@ import random
 import sys
 from io import StringIO
 
-def modify_cif_content(input_content, replace_from='Bi', replace_to='Mg', percentage=0.2, mode='random'):
+def modify_cif_content(input_content, replace_from='Bi', replace_to='Mg', percentage=0.2, mode='random', is_vacancy=False):
     """
-    CIFファイルの内容（文字列）を受け取り、指定された元素を指定された割合で置き換えた
-    新しいCIFファイルの内容（文字列）とログメッセージを返します。
+    CIFファイルの内容（文字列）を受け取り、指定された元素を指定された割合で置き換え、
+    または削除（欠損）した新しいCIFファイルの内容（文字列）とログメッセージを返します。
     
     Args:
         mode (str): 'random' (ランダムに選択) または 'sequential' (ファイルの上から順に選択)
+        is_vacancy (bool): True の場合、置換ではなく削除を行う
     """
     lines = input_content.splitlines(keepends=True)
     log_messages = []
@@ -52,8 +53,6 @@ def modify_cif_content(input_content, replace_from='Bi', replace_to='Mg', percen
     symbol_col_index = header_map.get('_atom_site_type_symbol', -1)
 
     candidate_indices = []
-    # atom_site_loop_indices はファイルの出現順に格納されているため、
-    # candidate_indices も自動的に「上から順」になります。
     for idx in atom_site_loop_indices:
         parts = lines[idx].split()
         if len(parts) > label_col_index and parts[label_col_index].startswith(replace_from):
@@ -65,22 +64,20 @@ def modify_cif_content(input_content, replace_from='Bi', replace_to='Mg', percen
 
     num_to_replace = int(len(candidate_indices) * percentage)
     
-    # --- 変更箇所: モードによる選択ロジックの分岐 ---
     if mode == 'sequential':
-        # リストの先頭から num_to_replace 個を取得（上から順）
         indices_to_replace = candidate_indices[:num_to_replace]
         log_messages.append(f"Info: Mode is '{mode}'. Selecting top {num_to_replace} sites.")
     else:
-        # ランダムに選択（デフォルト）
         indices_to_replace = random.sample(candidate_indices, num_to_replace)
         log_messages.append(f"Info: Mode is '{mode}'. Selecting {num_to_replace} sites randomly.")
-    # ---------------------------------------------
 
     replaced_count = 0
-    # 置換処理の順序自体は行番号順にする必要はないですが、setにしておくと検索が早いです
-    indices_to_replace_set = set(indices_to_replace)
+    for line_idx in indices_to_replace:
+        if is_vacancy:
+            new_lines[line_idx] = ""
+            replaced_count += 1
+            continue
 
-    for line_idx in indices_to_replace: # リスト順に処理
         original_line = lines[line_idx]
         parts = original_line.split()
         
@@ -122,5 +119,9 @@ def modify_cif_content(input_content, replace_from='Bi', replace_to='Mg', percen
         new_lines[line_idx] = "".join(new_line_segments) + '\n'
         replaced_count += 1
     
-    log_messages.append(f"Success: Replaced {replaced_count} out of {len(candidate_indices)} '{replace_from}' sites with '{replace_to}'.")
+    if is_vacancy:
+        log_messages.append(f"Success: Removed {replaced_count} out of {len(candidate_indices)} '{replace_from}' sites.")
+    else:
+        log_messages.append(f"Success: Replaced {replaced_count} out of {len(candidate_indices)} '{replace_from}' sites with '{replace_to}'.")
+    
     return "".join(new_lines), log_messages
