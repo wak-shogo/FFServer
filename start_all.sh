@@ -12,6 +12,11 @@ echo "Docker: $(docker --version 2>/dev/null || echo 'Not found')"
 echo "GPU: $(nvidia-smi -L 2>/dev/null || echo 'NVIDIA GPU not detected or nvidia-smi failed')"
 echo "===================="
 
+# --- 権限の強制付与 ---
+echo "Setting executable permissions for scripts..."
+chmod +x entrypoint.sh start_all.sh start_app.sh build_container.sh
+# ----------------------
+
 # イメージの存在確認
 if [[ "$(docker images -q $IMAGE_NAME 2> /dev/null)" == "" ]]; then
   echo "❌ Error: Docker image '$IMAGE_NAME' not found."
@@ -26,7 +31,6 @@ docker rm $CONTAINER_NAME >/dev/null 2>&1
 echo "Starting Docker container ($CONTAINER_NAME)..."
 
 # 1. 現代的な標準 ( --gpus all のみ) で試行
-# エラーの原因となっていた --runtime=nvidia を削除しています
 echo "Attempt 1: Starting with '--gpus all'..."
 if docker run --gpus all -d --name $CONTAINER_NAME \
   -p 8888:8888 -p 8501:8501 \
@@ -61,7 +65,6 @@ echo "Waiting for services to initialize (5s)..."
 sleep 5
 
 echo "=== Container Process Status (Supervisor) ==="
-# コンテナ内の supervisorctl を使ってプロセスの状態を表示
 docker exec $CONTAINER_NAME supervisorctl status || echo "Could not retrieve status."
 echo "============================================="
 
