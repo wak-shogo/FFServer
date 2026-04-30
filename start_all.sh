@@ -1,35 +1,70 @@
 #!/bin/bash
 
-# このスクリプト (start_all.sh) があるディレクトリに移動
+# このスクリプトがあるディレクトリに移動
 cd "$(dirname "$0")"
 
-# コンテナ名を定義
 CONTAINER_NAME="my_calc_env"
+IMAGE_NAME="nequip-olm-jupyter"
 
-# 以前のコンテナが残っている場合、停止して削除
+echo "=== System Check ==="
+echo "Directory: $(pwd)"
+echo "Docker: $(docker --version 2>/dev/null || echo 'Not found')"
+echo "GPU: $(nvidia-smi -L 2>/dev/null || echo 'NVIDIA GPU not detected or nvidia-smi failed')"
+echo "===================="
+
+# イメージの存在確認
+if [[ "$(docker images -q $IMAGE_NAME 2> /dev/null)" == "" ]]; then
+  echo "❌ Error: Docker image '$IMAGE_NAME' not found."
+  echo "Please run './build_container.sh' first."
+  exit 1
+fi
+
 echo "Stopping and removing old container if it exists..."
 docker stop $CONTAINER_NAME >/dev/null 2>&1
 docker rm $CONTAINER_NAME >/dev/null 2>&1
 
-echo "Starting Docker container ($CONTAINER_NAME) in background..."
-# 1. Docker コンテナをバックグラウンド (-d) で起動し、名前 (--name) をつける
-#    $(pwd) を /workspace にマウントし、設定ファイルを上書きマウントします。
-docker run --gpus all --runtime=nvidia -d --name $CONTAINER_NAME \
+echo "Starting Docker container ($CONTAINER_NAME)..."
+
+# 1. 現代的な標準 ( --gpus all のみ) で試行
+# エラーの原因となっていた --runtime=nvidia を削除しています
+echo "Attempt 1: Starting with '--gpus all'..."
+if docker run --gpus all -d --name $CONTAINER_NAME \
   -p 8888:8888 -p 8501:8501 \
-  -v $(pwd):/workspace \
-  -v $(pwd)/supervisord.conf:/etc/supervisor/conf.d/app.conf \
-  -v $(pwd)/entrypoint.sh:/usr/local/bin/entrypoint.sh \
-  -v $(pwd)/matris_cache:/root/.cache/matris \
-  nequip-olm-jupyter
+  -v "$(pwd)":/workspace \
+  -v "$(pwd)/supervisord.conf":/etc/supervisor/conf.d/app.conf \
+  -v "$(pwd)/entrypoint.sh":/usr/local/bin/entrypoint.sh \
+  -v "$(pwd)/matris_cache":/root/.cache/matris \
+  $IMAGE_NAME; then
+    echo "✅ Started successfully with GPU support."
+else
+    echo "⚠️ Attempt 1 failed. Trying Attempt 2 (No GPU support)..."
+    docker stop $CONTAINER_NAME >/dev/null 2>&1
+    docker rm $CONTAINER_NAME >/dev/null 2>&1
+    
+    # 2. フォールバック: GPUなしで起動
+    if docker run -d --name $CONTAINER_NAME \
+      -p 8888:8888 -p 8501:8501 \
+      -v "$(pwd)":/workspace \
+      -v "$(pwd)/supervisord.conf":/etc/supervisor/conf.d/app.conf \
+      -v "$(pwd)/entrypoint.sh":/usr/local/bin/entrypoint.sh \
+      -v "$(pwd)/matris_cache":/root/.cache/matris \
+      $IMAGE_NAME; then
+        echo "⚠️ Started WITHOUT GPU support. Performance will be degraded."
+    else
+        echo "❌ Critical Error: Could not start container even without GPU."
+        exit 1
+    fi
+fi
 
 echo "---"
-echo "✅ Setup complete!"
-echo "All services are managed by Supervisor inside the container."
-echo "Jupyter Lab should be running at: http://localhost:8888"
-echo "Streamlit App should be running at: http://localhost:8501"
-echo "---"
+echo "Waiting for services to initialize (5s)..."
+sleep 5
 
-# (オプション) 自動でブラウザを開く場合 (WSL環境で動作する wslview を使用)
-# echo "Opening browsers..."
-# wslview http://localhost:8888
-# wslview http://localhost:8501
+echo "=== Container Process Status (Supervisor) ==="
+# コンテナ内の supervisorctl を使ってプロセスの状態を表示
+docker exec $CONTAINER_NAME supervisorctl status || echo "Could not retrieve status."
+echo "============================================="
+
+echo "Setup complete!"
+echo "Jupyter Lab: http://localhost:8888"
+echo "Streamlit App: http://localhost:8501"
