@@ -58,7 +58,7 @@ def get_calculator(model_name, use_device='cuda'):
 
         return PESCalculator(potential=GPUPotentialWrapper(potential))
 
-    elif model_name == "CHGNet":
+    if model_name == "CHGNet":
         from chgnet.model.dynamics import CHGNetCalculator
         try:
             return CHGNetCalculator(use_device=use_device)

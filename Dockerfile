@@ -21,16 +21,17 @@ RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
 # 作業ディレクトリを設定
 WORKDIR /workspace
 
-# 1. PyTorchをCUDA 12.8インデックスからインストール
+# 1. PyTorchをインストール (StarterKit準拠のPyTorch 2.6.0 + CUDA 12.4)
 RUN pip3 install --upgrade pip && \
     pip3 install \
-    torch==2.8.0 torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
+    torch==2.6.0 torchvision==0.21.0 torchaudio==2.6.0 --index-url https://download.pytorch.org/whl/cu124
 
 # 2. その他の基本パッケージをインストール (PyPIから)
+# StarterKitに倣い、numpy<2 および torchdata==0.7.1 を指定
 RUN pip3 install \
     jupyter \
     jupyterlab \
-    numpy \
+    "numpy<2" \
     pandas \
     matplotlib \
     ase \
@@ -43,7 +44,8 @@ RUN pip3 install \
     supervisor \
     seaborn \
     MDAnalysis \
-    scipy
+    scipy \
+    torchdata==0.7.1
 
 # 3. MLFFモデルをインストール
 RUN pip3 install \
@@ -52,8 +54,10 @@ RUN pip3 install \
     mattersim \
     orb-models \
     nequip-allegro \
-    dgl -f https://data.dgl.ai/wheels/repo.html \
     torch-geometric
+
+# DGLのインストール (PyTorch 2.6 / CUDA 12.4 用の公式バイナリ)
+RUN pip3 install dgl -f https://data.dgl.ai/wheels/torch-2.6/cu124/repo.html
 
 # Clone the MatRIS repository as it's not available on PyPI
 RUN git clone https://github.com/HPC-AI-Team/MatRIS.git /opt/MatRIS
