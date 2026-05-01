@@ -40,7 +40,7 @@ tab1, tab2, tab3, tab4 = st.tabs(["🚀 Simulation Dashboard", "📂 Project Bro
 # --- サイドバー ---
 with st.sidebar:
     st.header("1. Model Selection")
-    selected_model = st.selectbox("Select ML Force Field", ["CHGNet", "CHGNet_r2SCAN", "MatterSim", "Orb", "NequipOLM", "MatRIS"])
+    selected_model = st.selectbox("Select ML Force Field", ["CHGNet (matgl)", "CHGNet", "CHGNet_r2SCAN", "MatterSim", "Orb", "NequipOLM", "MatRIS"])
     sim_mode = st.selectbox("Simulation Mode", ["Realistic (ISIF=3)", "Legacy (Orthorombic)"])
     st.header("2. Structure Input")
     uploaded_files = st.file_uploader("Upload CIF Files for NPT Simulation", type=["cif"], accept_multiple_files=True)
@@ -49,11 +49,12 @@ with st.sidebar:
     project_prefix = st.text_input("Project Name Prefix", value=default_prefix)
     st.header("4. NPT Simulation Parameters")
     with st.expander("NPT Simulation Details", expanded=True):
-        magmom_specie = st.text_input("Species for Magmom Tracking (comma separated)", "Co", help="Enter one or more elements to track (e.g., 'Co, Fe, Ni')") if selected_model == "CHGNet" else None
+        is_chgnet = selected_model in ["CHGNet", "CHGNet (matgl)"]
+        magmom_specie = st.text_input("Species for Magmom Tracking (comma separated)", "Co", help="Enter one or more elements to track (e.g., 'Co, Fe, Ni')") if is_chgnet else None
         
         temp_start, temp_end = st.number_input("Start Temp (K)", 1), st.number_input("End Temp (K)", value=1000)
         temp_step, eq_steps = st.number_input("Temp Step (K)", 1,100,5), st.number_input("Steps per Temp", 2000)
-        n_gpu_jobs = st.slider("Parallel Jobs", 1, 8, 3)
+        n_gpu_jobs = st.slider("Parallel Jobs", 1, 8, 1)
         # ✅ --- ここに追加 --- (冷却オプションのトグル)
         enable_cooling = st.checkbox("Enable Cooling After Heating (same rate)")
 
@@ -374,7 +375,7 @@ with tab4:
    
     col1, col2 = st.columns(2)
     with col1:
-        opt_model = st.selectbox("Select ML Force Field", ["CHGNet", "CHGNet_r2SCAN", "MatterSim", "Orb", "NequipOLM", "MatRIS"], key="optimizer_model")
+        opt_model = st.selectbox("Select ML Force Field", ["CHGNet (matgl)", "CHGNet", "CHGNet_r2SCAN", "MatterSim", "Orb", "NequipOLM", "MatRIS"], key="optimizer_model")
     with col2:
         opt_prefix = st.text_input("Project Name Prefix", value=datetime.now().strftime("%Y%m%d"), key="optimizer_prefix")
     

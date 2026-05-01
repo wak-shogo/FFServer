@@ -29,7 +29,36 @@ def get_calculator(model_name, use_device='cuda'):
         use_device = 'cpu'
 
     # メモリ節約のため、CHGNetのインスタンス作成時にメモリ管理を厳格化
-    if model_name == "CHGNet":
+    if model_name == "CHGNet (matgl)":
+        import matgl
+        try:
+            matgl.set_backend("DGL")
+        except Exception:
+            pass
+        from matgl.ext.ase import PESCalculator
+        # Standard CHGNet v0.3.0 equivalent in matgl
+        potential = matgl.load_model("CHGNet-MPtrj-2023.12.1-2.7M-PES")
+        potential.to(use_device)
+        
+        # Use a wrapper for device consistency if needed, similar to CHGNet_r2SCAN
+        class GPUPotentialWrapper:
+            def __init__(self, potential):
+                self.potential = potential
+            def __call__(self, g, lat, state_attr, **kwargs):
+                device = next(self.potential.model.parameters()).device
+                def to_device(obj):
+                    if obj is None: return None
+                    if hasattr(obj, 'to'): return obj.to(device)
+                    if isinstance(obj, (np.ndarray, list)):
+                        return torch.tensor(obj, device=device, dtype=matgl.float_th)
+                    return obj
+                return self.potential(g=g.to(device), lat=to_device(lat), state_attr=to_device(state_attr), **kwargs)
+            def __getattr__(self, name):
+                return getattr(self.potential, name)
+
+        return PESCalculator(potential=GPUPotentialWrapper(potential))
+
+    elif model_name == "CHGNet":
         from chgnet.model.dynamics import CHGNetCalculator
         try:
             return CHGNetCalculator(use_device=use_device)
