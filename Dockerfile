@@ -1,5 +1,5 @@
-# ベースイメージとしてCUDA 11.8.0の開発環境を指定
-FROM nvidia/cuda:11.8.0-devel-ubuntu22.04
+# ベースイメージとしてCUDA 12.8.0の開発環境を指定 (RTX 5090/Blackwell対応のため)
+FROM nvidia/cuda:12.8.0-devel-ubuntu22.04
 
 # apt-get実行時にインタラクティブなプロンプトを無効化
 ENV DEBIAN_FRONTEND=noninteractive
@@ -21,12 +21,13 @@ RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
 # 作業ディレクトリを設定
 WORKDIR /workspace
 
-# 依存関係のバージョンを固定するための制約ファイルをコピー
-#COPY constraints.txt .
+# 1. PyTorchをCUDA 12.8インデックスからインストール
+RUN pip3 install --upgrade pip && \
+    pip3 install \
+    torch==2.8.0 torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
 
-# 1. 基本パッケージとPyTorchを、制約ファイルを使ってインストール
-RUN pip3 install\
-    torch==2.4.0 torchvision==0.19.0 torchaudio==2.4.0 --extra-index-url https://download.pytorch.org/whl/cu118 \
+# 2. その他の基本パッケージをインストール (PyPIから)
+RUN pip3 install \
     jupyter \
     jupyterlab \
     numpy \
@@ -44,32 +45,34 @@ RUN pip3 install\
     MDAnalysis \
     scipy
 
-# 2. MLFFモデルをインストール (制約ファイルを適用)
-    # torchを再度指定してアップグレードを防止
-RUN pip3 install\
-    torch==2.4.0 torchvision==0.19.0 torchaudio==2.4.0 --extra-index-url https://download.pytorch.org/whl/cu118 \
+# 3. MLFFモデルをインストール
+RUN pip3 install \
     chgnet \
+    matgl \
     mattersim \
     orb-models \
     nequip-allegro \
-    dgl -f https://data.dgl.ai/wheels/torch-2.4/cu118/repo.html \
-    matgl
+    dgl -f https://data.dgl.ai/wheels/repo.html \
+    torch-geometric
+
 # Clone the MatRIS repository as it's not available on PyPI
 RUN git clone https://github.com/HPC-AI-Team/MatRIS.git /opt/MatRIS
 ENV PYTHONPATH="/opt/MatRIS"
 
-# Download CHGNet-r2SCAN model
+# Download CHGNet-r2SCAN (or PBE as available) model
 RUN git clone https://github.com/materialyzeai/matgl.git /opt/matgl_temp && \
     mkdir -p /opt/models && \
-    cp -r /opt/matgl_temp/pretrained_models/CHGNet-MatPES-r2SCAN-2025.2.10-2.7M-PES /opt/models/CHGNet_r2SCAN && \
+    cp -r /opt/matgl_temp/pretrained_models/CHGNet-MatPES-PBE-2025.2.10-2.7M-PES /opt/models/CHGNet_r2SCAN && \
     rm -rf /opt/matgl_temp
 
-# 3. MACEをソースからインストール (制約ファイルを適用)
+# 4. MACEをソースからインストール
 RUN git clone https://github.com/ACEsuit/mace.git /mace
 WORKDIR /mace
-#RUN pip3 install -c /workspace/constraints.txt -e .
-# MACEインストール後に作業ディレクトリを戻す
+RUN pip3 install -e .
 WORKDIR /workspace
+
+# --- プロジェクト用ディレクトリの作成 ---
+RUN mkdir -p /workspace/simulation_projects
 
 # --- コンパイル処理は削除し、起動スクリプトを配置 ---
 COPY entrypoint.sh /usr/local/bin/

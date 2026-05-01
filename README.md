@@ -71,4 +71,23 @@ streamlit run app.py
 
 ## 注意事項
 - **GPU推奨**: 機械学習力場の計算にはCUDA対応のGPU環境を強く推奨します。
-- **メモリ**: 複数のモデルを並行してロードする場合、十分なGPUメモリ（12GB以上推奨）が必要です。
+- **最新ハードウェア対応**: NVIDIA RTX 50シリーズ (Blackwellアーキテクチャ) 以降に対応するため、DockerイメージはCUDA 12.8 / PyTorch 2.8.0ベースで構成されています。
+    - ホストマシン（Windows/Linux）には、最新のNVIDIAドライバがインストールされている必要があります。
+- **メモリ**: 複数のモデルを並行してロードする場合、十分なGPUメモリ（12GB以上推奨、RTX 3090/4090/5090クラスを推奨）が必要です。
+
+## 運用・トラブルシューティング
+
+### プロセスの管理
+コンテナ内では `supervisord` が Jupyter, Streamlit, Worker の3つのプロセスを管理しています。個別に再起動や状態確認をしたい場合は、以下のコマンドを使用できます。
+
+```bash
+# 全プロセスの状態確認
+docker exec my_calc_env supervisorctl status
+
+# 特定プロセスの再起動 (例: worker)
+docker exec my_calc_env supervisorctl restart worker
+```
+
+### ログの確認
+- **Workerの内部計算ログ**: `simulation_projects/worker_internal.log` に出力されます。
+- **プロセスの実行ログ**: `/var/log/supervisor/` 内に各プロセスの標準出力・エラー出力が記録されています。

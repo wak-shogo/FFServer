@@ -233,6 +233,7 @@ def run_job(job_details):
             print(f"Cleaned up cancel flag after job `{project_name}`.")
 
 def main_worker_loop():
+    os.makedirs(PROJECTS_DIR, exist_ok=True)
     print(f"Worker started. Watching for jobs... Logging to {LOG_FILE}")
     import sys
     while True:
