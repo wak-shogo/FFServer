@@ -17,7 +17,7 @@ import notifications as notify
 import batch_analysis
 
 # --- 定数定義 ---
-PROJECTS_DIR = "simulation_projects"
+PROJECTS_DIR = "/workspace/simulation_projects"
 QUEUE_FILE = os.path.join(PROJECTS_DIR, "queue.json")
 CURRENT_JOB_FILE = os.path.join(PROJECTS_DIR, "current_job.json")
 REALTIME_DATA_FILE = os.path.join(PROJECTS_DIR, "realtime_data.csv")
@@ -53,7 +53,7 @@ def run_job(job_details):
             return
 
         # Relaxed fmax to 0.05 to ensure convergence with ML potentials
-        opt_atoms, _, _ = sim.optimize_structure(atoms, model_name=model_name, fmax=0.05)
+        opt_atoms, _, _ = sim.optimize_structure(atoms, model_name=model_name, fmax=0.05, cancel_check_file=CANCEL_FLAG_FILE)
         
         # 🟢 メモリ節約
         if opt_atoms.calc is not None:
@@ -212,6 +212,9 @@ def run_job(job_details):
                 notify.send_to_discord(f"🎉 NPT simulation finished: `{project_name}`{cooling_str}\nTime: {elapsed_time:.2f} sec.", color=3066993)
             else:
                 notify.send_to_discord(f"❌ NPT simulation failed: `{project_name}`.", color=15158332)
+    except InterruptedError:
+        print(f"Job `{project_name}` was cancelled by the user.")
+        notify.send_to_discord(f"🛑 Job `{project_name}` stopped/cancelled by user.", color=16776960)
     except Exception as e:
         error_msg = f"Unhandled exception in worker for job `{project_name}`: {e}\n{traceback.format_exc()}"
         print(error_msg)

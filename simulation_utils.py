@@ -50,7 +50,7 @@ def clear_memory():
     gc.collect()
     if torch.cuda.is_available(): torch.cuda.empty_cache()
 
-def optimize_structure(atoms_obj, model_name, fmax=0.01):
+def optimize_structure(atoms_obj, model_name, fmax=0.01, cancel_check_file=None):
     energies, lattice_constants = [], []
     atoms_obj.calc = get_calculator(model_name)
     
@@ -64,6 +64,11 @@ def optimize_structure(atoms_obj, model_name, fmax=0.01):
         lattice_constants.append(np.mean(a.atoms.get_cell().lengths()))
     
     opt.attach(save_step_data)
+    
+    def check_cancel():
+        if cancel_check_file and os.path.exists(cancel_check_file):
+            raise InterruptedError("Job cancelled by user during optimization.")
+    opt.attach(check_cancel, interval=1)
     
     # Run optimization with a step limit to prevent freezing
     max_steps = 100
@@ -181,6 +186,10 @@ def _run_single_temp_npt(params):
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
 
+        def check_cancel_npt():
+            if cancel_check_file and os.path.exists(cancel_check_file):
+                raise InterruptedError("Job cancelled by user.")
+
         # --- 3. MD初期化 ---
         init_temp = max(temp, 5.0)
         MaxwellBoltzmannDistribution(atoms, temperature_K=init_temp, force_temp=True)
@@ -192,6 +201,7 @@ def _run_single_temp_npt(params):
         # ==========================================
         # まず体積固定で温度をなじませる
         dyn_nvt = Langevin(atoms, timestep=0.5 * units.fs, temperature_K=temp, friction=0.02)
+        dyn_nvt.attach(check_cancel_npt, interval=5)
         dyn_nvt.run(100) 
 
         # ==========================================
@@ -213,6 +223,7 @@ def _run_single_temp_npt(params):
         
         # Attach memory cleaner (run every 50 steps)
         dyn.attach(clean_memory_step, interval=50)
+        dyn.attach(check_cancel_npt, interval=5)
         
         # 初期緩和 (ログなし)
         dyn.run(200)
@@ -227,7 +238,7 @@ def _run_single_temp_npt(params):
 
     except InterruptedError:
         print(f"Job at {temp} K interrupted by user flag.")
-        return None, "Interrupted by user", None
+        raise
     except Exception as e:
         err_msg = str(e)
         import traceback; print(f"Error at {temp} K:"); traceback.print_exc()

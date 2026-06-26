@@ -14,19 +14,28 @@ echo "=== Force Restarting Application (Deep Clean) ==="
 # これにより、管理下のプロセスが自動で再起動されるのを防ぎます
 supervisorctl stop all
 
-# 2. 残存している可能性のある全てのPythonプロセスを強制終了
-# 並列計算などでフォークされた子プロセス（ゾンビプロセス）を確実に掃除します
-echo "Killing all remaining python processes..."
-pkill -9 python3
-pkill -9 python
+# 2. 残存している可能性のあるPythonプロセス（並列計算の子プロセス等）を強制終了
+# ただし、Supervisordプロセス（PID 1 または supervisord.confで動作している親プロセス）は除外します
+echo "Killing all remaining python processes (except Supervisord)..."
+SUPERVISOR_PID=$(pgrep -f "supervisord" | head -n 1)
+echo "Supervisord PID: $SUPERVISOR_PID"
 
-# 3. 実行中のジョブとキュー、フラグファイルを削除
+pids=$(pgrep -f "python")
+for pid in $pids; do
+  if [ "$pid" != "$SUPERVISOR_PID" ] && [ "$pid" != "1" ] && [ "$pid" != "$$" ]; then
+    echo "Killing process $pid"
+    kill -9 "$pid" 2>/dev/null
+  fi
+done
+
+# 3. 実行中のジョブとキュー、フラグファイル、キュー内の一時CIFファイルを削除
 echo "Clearing job queue and flags..."
 mkdir -p "$PROJECTS_DIR"
-rm -f "$QUEUE_FILE"
+echo "[]" > "$QUEUE_FILE"
 rm -f "$CURRENT_JOB_FILE"
 rm -f "$REALTIME_DATA_FILE"
 rm -f "$CANCEL_FLAG_FILE"
+rm -f "$PROJECTS_DIR"/*.cif
 
 # 4. 数秒待機してポートやメモリを確実に解放
 sleep 2

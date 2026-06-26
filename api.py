@@ -22,7 +22,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-PROJECTS_DIR = "simulation_projects"
+PROJECTS_DIR = "/workspace/simulation_projects"
 QUEUE_FILE = os.path.join(PROJECTS_DIR, "queue.json")
 CURRENT_JOB_FILE = os.path.join(PROJECTS_DIR, "current_job.json")
 REALTIME_DATA_FILE = os.path.join(PROJECTS_DIR, "realtime_data.csv")
@@ -364,9 +364,18 @@ async def edit_cif(
 def maintenance_restart():
     restart_script_path = "/workspace/force_restart.sh"
     import subprocess
+    import os
     try:
         subprocess.run(["chmod", "+x", restart_script_path], check=True, capture_output=True, text=True)
-        subprocess.Popen([restart_script_path], cwd="/workspace")
+        # Detach child process using a new session group (os.setsid) and redirect stdio
+        subprocess.Popen(
+            [restart_script_path],
+            cwd="/workspace",
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            stdin=subprocess.DEVNULL,
+            preexec_fn=os.setsid
+        )
         return {"message": "Restart script triggered."}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to execute restart script: {str(e)}")
