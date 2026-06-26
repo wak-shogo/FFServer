@@ -28,36 +28,6 @@ def get_calculator(model_name, use_device='cuda'):
         print("Warning: CUDA requested but not available. Falling back to CPU.")
         use_device = 'cpu'
 
-    # メモリ節約のため、CHGNetのインスタンス作成時にメモリ管理を厳格化
-    if model_name == "CHGNet (matgl)":
-        import matgl
-        try:
-            matgl.set_backend("DGL")
-        except Exception:
-            pass
-        from matgl.ext.ase import PESCalculator
-        # Standard CHGNet v0.3.0 equivalent in matgl
-        potential = matgl.load_model("CHGNet-MPtrj-2023.12.1-2.7M-PES")
-        potential.to(use_device)
-        
-        # Use a wrapper for device consistency if needed, similar to CHGNet_r2SCAN
-        class GPUPotentialWrapper:
-            def __init__(self, potential):
-                self.potential = potential
-            def __call__(self, g, lat, state_attr, **kwargs):
-                device = next(self.potential.model.parameters()).device
-                def to_device(obj):
-                    if obj is None: return None
-                    if hasattr(obj, 'to'): return obj.to(device)
-                    if isinstance(obj, (np.ndarray, list)):
-                        return torch.tensor(obj, device=device, dtype=matgl.float_th)
-                    return obj
-                return self.potential(g=g.to(device), lat=to_device(lat), state_attr=to_device(state_attr), **kwargs)
-            def __getattr__(self, name):
-                return getattr(self.potential, name)
-
-        return PESCalculator(potential=GPUPotentialWrapper(potential))
-
     if model_name == "CHGNet":
         from chgnet.model.dynamics import CHGNetCalculator
         try:
@@ -73,71 +43,8 @@ def get_calculator(model_name, use_device='cuda'):
             
             print("Warning: CHGNet device initialization failed. Falling back to CPU.")
             return CHGNetCalculator(use_device='cpu')
-    elif model_name == "MatterSim":
-        from mattersim.forcefield import MatterSimCalculator
-        return MatterSimCalculator(device=use_device)
-    elif model_name == "Orb":
-        from orb_models.forcefield import pretrained
-        from orb_models.forcefield.calculator import ORBCalculator
-        orbff = pretrained.orb_v3_conservative_inf_omat(device=use_device, precision="float32-high")
-        return ORBCalculator(orbff, device=use_device)
-    elif model_name == "MatRIS":
-        from matris.applications.base import MatRISCalculator
-        return MatRISCalculator(model='matris_10m_oam', task='efsm', device=use_device)
-    elif model_name == "NequipOLM":
-        from nequip.ase import NequIPCalculator
-        model_path = "/workspace/NequipOLM_model/nequip-oam-l.nequip.pt2"
-        if not os.path.exists(model_path):
-            raise FileNotFoundError(f"NequipOLM model not found at '{model_path}'.")
-        return NequIPCalculator.from_compiled_model(model_path, device=use_device)
-    elif model_name == "CHGNet_r2SCAN":
-        import matgl
-        # DGL backend is required for CHGNet models in matgl
-        try:
-            matgl.set_backend("DGL")
-        except Exception:
-            pass # Backend might already be set or not switchable
-            
-        from matgl.ext.ase import PESCalculator
-        model_path = "/opt/models/CHGNet_r2SCAN"
-        if not os.path.exists(model_path):
-            raise FileNotFoundError(f"CHGNet_r2SCAN model not found at '{model_path}'.")
-        potential = matgl.load_model(model_path)
-        # Move model to device
-        potential.to(use_device)
-        
-        # Wrapper to ensure inputs are moved to the same device as the model
-        class GPUPotentialWrapper:
-            def __init__(self, potential):
-                self.potential = potential
-            def __call__(self, g, lat, state_attr, **kwargs):
-                # Check device of the underlying model
-                device = next(self.potential.model.parameters()).device
-                
-                # Helper to convert and move
-                def to_device(obj):
-                    if obj is None: return None
-                    if hasattr(obj, 'to'): return obj.to(device)
-                    if isinstance(obj, (np.ndarray, list)):
-                        return torch.tensor(obj, device=device, dtype=matgl.float_th)
-                    return obj
-
-                # Move inputs to device
-                g = g.to(device)
-                lat = to_device(lat)
-                state_attr = to_device(state_attr)
-                
-                # Handle kwargs that might need moving
-                if 'total_charge' in kwargs: kwargs['total_charge'] = to_device(kwargs['total_charge'])
-                if 'ext_pot' in kwargs: kwargs['ext_pot'] = to_device(kwargs['ext_pot'])
-
-                return self.potential(g=g, lat=lat, state_attr=state_attr, **kwargs)
-            
-            def __getattr__(self, name):
-                return getattr(self.potential, name)
-
-        return PESCalculator(potential=GPUPotentialWrapper(potential))
-    else: raise ValueError(f"Unknown model specified: {model_name}")
+    else:
+        raise ValueError(f"Unknown or unsupported model specified: {model_name}. Only 'CHGNet' is supported in this simplified build.")
 
 def clear_memory():
     gc.collect()
@@ -224,7 +131,7 @@ def _run_single_temp_npt(params):
         magmom_indices = []
         magmom_column_keys = []
         if magmom_specie:
-            species_list = [s.strip() for s in magmom_specie.split(',')]
+            species_list = [s.strip() for s in magmom_specie.split(',') if s.strip()]
             from chgnet.model.dynamics import CHGNetCalculator
             if isinstance(atoms.calc, CHGNetCalculator):
                 symbols = atoms.get_chemical_symbols()
@@ -239,6 +146,7 @@ def _run_single_temp_npt(params):
                             count += 1
 
         def log_step_data():
+            nonlocal magmom_indices, magmom_column_keys
             # Check cancellation
             if cancel_check_file and os.path.exists(cancel_check_file):
                 raise InterruptedError("Job cancelled by user.")
@@ -253,10 +161,19 @@ def _run_single_temp_npt(params):
             results_data["cells"].append(atoms.get_cell())
             
             if magmom_indices:
-                all_magmoms = atoms.get_magnetic_moments()
-                for i, atom_idx in enumerate(magmom_indices):
-                    key = magmom_column_keys[i]
-                    results_data[key].append(all_magmoms[atom_idx])
+                try:
+                    all_magmoms = atoms.get_magnetic_moments()
+                    for i, atom_idx in enumerate(magmom_indices):
+                        key = magmom_column_keys[i]
+                        results_data[key].append(all_magmoms[atom_idx])
+                except Exception as e:
+                    print(f"Warning: Failed to retrieve magnetic moments: {e}. Disabling magnetic moment tracking for this run.")
+                    # Clean up results_data to avoid length mismatch
+                    for key in magmom_column_keys:
+                        if key in results_data:
+                            del results_data[key]
+                    magmom_indices = []
+                    magmom_column_keys = []
 
         # 🟢 Memory cleaner callback
         def clean_memory_step():

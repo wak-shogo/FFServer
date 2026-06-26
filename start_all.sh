@@ -10,7 +10,30 @@ echo "=== System Check ==="
 echo "Directory: $(pwd)"
 echo "Docker: $(docker --version 2>/dev/null || echo 'Not found')"
 echo "GPU: $(nvidia-smi -L 2>/dev/null || echo 'NVIDIA GPU not detected or nvidia-smi failed')"
-echo "===================="
+# GPU detection vs toolkit installation check
+has_gpu=false
+if nvidia-smi -L &> /dev/null; then
+    has_gpu=true
+fi
+
+if [ "$has_gpu" = true ] && ! command -v nvidia-ctk &> /dev/null; then
+    echo "=========================================================================="
+    echo "⚠️  GPU DETECTED ON HOST, BUT DOCKER CANNOT USE IT!"
+    echo "Your NVIDIA GPU was detected via nvidia-smi, but the 'nvidia-container-toolkit'"
+    echo "is not installed or configured on your host system."
+    echo ""
+    echo "To enable GPU support in the Docker container, please run the setup script:"
+    echo "    bash setup_wsl2.sh"
+    echo ""
+    echo "This will install and configure the necessary components (requires sudo)."
+    echo "=========================================================================="
+    if [ -t 0 ]; then
+        echo "Press Enter to continue in CPU-only fallback mode, or Ctrl+C to abort."
+        read -r
+    else
+        echo "Continuing in CPU-only fallback mode (non-interactive session)..."
+    fi
+fi
 
 # --- 権限の強制付与 ---
 echo "Setting executable permissions for scripts..."
@@ -30,30 +53,57 @@ docker rm $CONTAINER_NAME >/dev/null 2>&1
 
 echo "Starting Docker container ($CONTAINER_NAME)..."
 
-# 1. 現代的な標準 ( --gpus all のみ) で試行
-echo "Attempt 1: Starting with '--gpus all'..."
-if docker run --gpus all -d --name $CONTAINER_NAME \
-  -p 8888:8888 -p 8501:8501 \
-  -v "$(pwd)":/workspace \
-  -v "$(pwd)/supervisord.conf":/etc/supervisor/conf.d/app.conf \
-  -v "$(pwd)/entrypoint.sh":/usr/local/bin/entrypoint.sh \
-  -v "$(pwd)/matris_cache":/root/.cache/matris \
-  $IMAGE_NAME; then
-    echo "✅ Started successfully with GPU support."
-else
-    echo "⚠️ Attempt 1 failed. Trying Attempt 2 (No GPU support)..."
+# 1. 現代的な標準 ( --gpus all ) で起動を試行 (最大3回リトライ)
+echo "Attempting to start container with GPU support (--gpus all)..."
+max_attempts=3
+success=false
+
+for ((attempt=1; attempt<=max_attempts; attempt++)); do
+  echo "Attempt $attempt of $max_attempts..."
+  
+  # コンテナが既に残っている場合は削除
+  docker stop $CONTAINER_NAME >/dev/null 2>&1
+  docker rm $CONTAINER_NAME >/dev/null 2>&1
+
+  if docker run --gpus all \
+    -e NVIDIA_VISIBLE_DEVICES=all \
+    -e NVIDIA_DRIVER_CAPABILITIES=all \
+    -d --name $CONTAINER_NAME \
+    -p 8888:8888 -p 8511:8501 \
+    -v "$(pwd)":/workspace \
+    -v "$(pwd)/supervisord.conf":/etc/supervisor/conf.d/app.conf \
+    -v "$(pwd)/entrypoint.sh":/usr/local/bin/entrypoint.sh \
+    $IMAGE_NAME; then
+      echo "✅ Started successfully with GPU support."
+      success=true
+      break
+  else
+      echo "⚠️ Attempt $attempt failed. Sleeping 2 seconds..."
+      sleep 2
+  fi
+done
+
+if [ "$success" = false ]; then
+    echo "=========================================================================="
+    echo "🚨 WARNING: GPU container startup failed after $max_attempts attempts."
+    echo "Falling back to Attempt 2: CPU-only mode."
+    echo "=========================================================================="
+    
     docker stop $CONTAINER_NAME >/dev/null 2>&1
     docker rm $CONTAINER_NAME >/dev/null 2>&1
     
     # 2. フォールバック: GPUなしで起動
     if docker run -d --name $CONTAINER_NAME \
-      -p 8888:8888 -p 8501:8501 \
+      -p 8888:8888 -p 8511:8501 \
       -v "$(pwd)":/workspace \
       -v "$(pwd)/supervisord.conf":/etc/supervisor/conf.d/app.conf \
       -v "$(pwd)/entrypoint.sh":/usr/local/bin/entrypoint.sh \
-      -v "$(pwd)/matris_cache":/root/.cache/matris \
       $IMAGE_NAME; then
-        echo "⚠️ Started WITHOUT GPU support. Performance will be degraded."
+        echo "⚠️⚠️⚠️ Started WITHOUT GPU support. Performance will be degraded. ⚠️⚠️⚠️"
+        echo "Troubleshooting GPU issues:"
+        echo "  - Make sure NVIDIA Container Toolkit is installed on the host."
+        echo "  - WSL2 Users: If this occurs intermittently, run 'wsl --shutdown' in Windows PowerShell and try again."
+        echo "  - Check if Docker is properly integrated with WSL2 in Docker Desktop settings."
     else
         echo "❌ Critical Error: Could not start container even without GPU."
         exit 1
@@ -70,4 +120,4 @@ echo "============================================="
 
 echo "Setup complete!"
 echo "Jupyter Lab: http://localhost:8888"
-echo "Streamlit App: http://localhost:8501"
+echo "Streamlit App: http://localhost:8511"

@@ -121,3 +121,9 @@ docker exec my_calc_env supervisorctl restart worker
 ### ログの確認
 - **Workerの内部計算ログ**: `simulation_projects/worker_internal.log` に出力されます。
 - **プロセスの実行ログ**: `/var/log/supervisor/` 内に各プロセスの標準出力・エラー出力が記録されています。
+
+---
+
+## Windowsユーザー向け専用ガイド
+WSL2やDockerがインストールされていないWindows環境からの詳細なセットアップ手順については、[WINDOWS_INSTALL_GUIDE.md](file:///home/wshogo/git/FFServer/WINDOWS_INSTALL_GUIDE.md) をご参照ください。
+

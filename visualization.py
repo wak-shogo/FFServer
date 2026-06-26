@@ -44,14 +44,17 @@ def plot_npt_results(df, magmom_specie):
     ax_mag.set(xlabel='Step', title='Avg Magmoms Evolution', xlim=(0, len(df)), ylabel='Magmom (μB)')
     ax_mag.grid(True)
     if magmom_specie:
-        species_list = [s.strip() for s in magmom_specie.split(',')]
+        species_list = [s.strip() for s in magmom_specie.split(',') if s.strip()]
         colors = plt.cm.tab10(np.linspace(0, 1, len(species_list)))
+        legend_labels = False
         for idx, s in enumerate(species_list):
             mag_cols = [col for col in df.columns if col.startswith(f"{s}_")]
             if mag_cols:
                 avg_mag = df[mag_cols].mean(axis=1)
                 ax_mag.plot(df.index, avg_mag, label=s, color=colors[idx])
-        ax_mag.legend()
+                legend_labels = True
+        if legend_labels:
+            ax_mag.legend()
    
     axes[5].axis('off')
     plt.tight_layout()
