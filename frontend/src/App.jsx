@@ -220,6 +220,41 @@ export default function App() {
     nptParams.nGpuJobs === "" ||
     nptFiles.length === 0
 
+  const getChartDataWithTemp = () => {
+    if (!realtimeData || realtimeData.length === 0) return []
+    const batches = {}
+    realtimeData.forEach((d) => {
+      const t = d.set_temps
+      if (!batches[t]) {
+        batches[t] = []
+      }
+      batches[t].push(d)
+    })
+    const sortedTemps = Object.keys(batches).map(Number).sort((a, b) => a - b)
+    const jobParams = systemStatus.current_job?.params
+    const startTemp = jobParams?.temp_range?.[0] || nptParams.tempStart || 10
+    const stepTemp = jobParams?.temp_range?.[2] || nptParams.tempStep || 5
+
+    return realtimeData.map((d) => {
+      const t_curr = d.set_temps
+      const batch = batches[t_curr]
+      const batchIndex = batch.indexOf(d)
+      const N = batch.length || 1
+      const tempIdx = sortedTemps.indexOf(t_curr)
+      let t_prev = startTemp - stepTemp
+      if (tempIdx > 0) {
+        t_prev = sortedTemps[tempIdx - 1]
+      } else {
+        t_prev = t_curr - stepTemp
+      }
+      const interpTemp = t_prev + (t_curr - t_prev) * ((batchIndex + 1) / N)
+      return {
+        ...d,
+        calculatedTemp: parseFloat(interpTemp.toFixed(1))
+      }
+    })
+  }
+
   const handleDrag = (e, setDragActive) => {
     e.preventDefault()
     e.stopPropagation()
@@ -422,7 +457,7 @@ export default function App() {
     formData.append("file", editorFile)
     formData.append("operation", cifEditorParams.operation)
     formData.append("replace_from", cifEditorParams.replaceFrom)
-    formData.append("replace_to", cifEditorParams.replaceTo)
+    formData.append("replace_to", cifEditorParams.operation === 'Vacancy' ? '' : cifEditorParams.replaceTo)
     formData.append("percentage", cifEditorParams.percentage)
     formData.append("mode", cifEditorParams.mode)
 
@@ -826,82 +861,128 @@ export default function App() {
                       
                       {/* Lattice Lengths Chart (a, b, c) */}
                       <div className="chart-container">
-                        <h4 style={{ marginBottom: '12px', fontSize: '13px' }}>Lattice Parameters (a, b, c) - Å</h4>
-                        <div style={{ display: 'flex', gap: '16px', fontSize: '11px', color: 'var(--text-muted)', marginBottom: '8px' }}>
+                        <h4 style={{ marginBottom: '12px', fontSize: '13px', textAlign: 'center' }}>Lattice Parameters (a, b, c) - Å</h4>
+                        <div style={{ display: 'flex', gap: '16px', fontSize: '11px', color: 'var(--text-muted)', marginBottom: '8px', justifyContent: 'center' }}>
                           <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#6366F1' }}></span> a</span>
                           <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#10B981' }}></span> b</span>
                           <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#EF4444' }}></span> c</span>
                         </div>
                         {/* Custom SVG Line Chart */}
-                        <svg className="chart-svg" viewBox="0 0 500 200">
-                          {/* Y grid lines */}
-                          <line x1="40" y1="20" x2="480" y2="20" stroke="rgba(255,255,255,0.05)" />
-                          <line x1="40" y1="100" x2="480" y2="100" stroke="rgba(255,255,255,0.05)" />
-                          <line x1="40" y1="180" x2="480" y2="180" stroke="rgba(255,255,255,0.05)" />
-                          {/* X Axes */}
-                          <line x1="40" y1="180" x2="480" y2="180" stroke="rgba(255,255,255,0.1)" />
-                          <line x1="40" y1="20" x2="40" y2="180" stroke="rgba(255,255,255,0.1)" />
-                          
-                          {/* Plot lines */}
-                          {(() => {
-                            const steps = realtimeData.length
-                            const minVal = Math.min(...realtimeData.flatMap(d => [d.a_lengths, d.b_lengths, d.c_lengths])) - 0.2
-                            const maxVal = Math.max(...realtimeData.flatMap(d => [d.a_lengths, d.b_lengths, d.c_lengths])) + 0.2
-                            const range = maxVal - minVal || 1
+                        {(() => {
+                          const chartData = getChartDataWithTemp()
+                          const steps = chartData.length
+                          const latticeVals = chartData.flatMap(d => [d.a_lengths, d.b_lengths, d.c_lengths])
+                          const minLat = Math.min(...latticeVals)
+                          const maxLat = Math.max(...latticeVals)
+                          const rangeLat = maxLat - minLat || 1
+                          const yMinLat = minLat - rangeLat * 0.05
+                          const yMaxLat = maxLat + rangeLat * 0.05
+                          const yRangeLat = yMaxLat - yMinLat || 1
 
-                            const getPoints = (key) => {
-                              return realtimeData.map((d, i) => {
-                                const x = 40 + (i / (steps - 1 || 1)) * 440
-                                const y = 180 - ((d[key] - minVal) / range) * 160
-                                return `${x},${y}`
-                              }).join(' ')
-                            }
+                          const minTemp = chartData[0]?.calculatedTemp || 0
+                          const maxTemp = chartData[steps - 1]?.calculatedTemp || 100
+                          const rangeTemp = maxTemp - minTemp || 1
 
-                            return (
-                              <>
-                                <polyline points={getPoints('a_lengths')} stroke="#6366F1" strokeWidth="2" fill="none" />
-                                <polyline points={getPoints('b_lengths')} stroke="#10B981" strokeWidth="2" fill="none" />
-                                <polyline points={getPoints('c_lengths')} stroke="#EF4444" strokeWidth="2" fill="none" />
-                              </>
-                            )
-                          })()}
-                        </svg>
+                          const getPoints = (key) => {
+                            return chartData.map((d) => {
+                              const x = 50 + ((d.calculatedTemp - minTemp) / rangeTemp) * 430
+                              const y = 180 - ((d[key] - yMinLat) / yRangeLat) * 160
+                              return `${x},${y}`
+                            }).join(' ')
+                          }
+
+                          return (
+                            <svg className="chart-svg" viewBox="0 0 500 210" style={{ overflow: 'visible' }}>
+                              {/* Y grid lines */}
+                              <line x1="50" y1="20" x2="480" y2="20" stroke="rgba(255,255,255,0.05)" />
+                              <line x1="50" y1="73" x2="480" y2="73" stroke="rgba(255,255,255,0.05)" />
+                              <line x1="50" y1="126" x2="480" y2="126" stroke="rgba(255,255,255,0.05)" />
+                              <line x1="50" y1="180" x2="480" y2="180" stroke="rgba(255,255,255,0.1)" />
+                              {/* X Axes */}
+                              <line x1="50" y1="180" x2="480" y2="180" stroke="rgba(255,255,255,0.1)" />
+                              <line x1="50" y1="20" x2="50" y2="180" stroke="rgba(255,255,255,0.1)" />
+                              <line x1="265" y1="20" x2="265" y2="180" stroke="rgba(255,255,255,0.03)" />
+                              <line x1="480" y1="20" x2="480" y2="180" stroke="rgba(255,255,255,0.05)" />
+                              
+                              {/* Y-Axis Tick Labels */}
+                              <text x="42" y="24" textAnchor="end" fill="var(--text-muted)" fontSize="9" fontFamily="monospace">{yMaxLat.toFixed(2)}</text>
+                              <text x="42" y="77" textAnchor="end" fill="var(--text-muted)" fontSize="9" fontFamily="monospace">{(yMaxLat - yRangeLat * 1/3).toFixed(2)}</text>
+                              <text x="42" y="130" textAnchor="end" fill="var(--text-muted)" fontSize="9" fontFamily="monospace">{(yMaxLat - yRangeLat * 2/3).toFixed(2)}</text>
+                              <text x="42" y="184" textAnchor="end" fill="var(--text-muted)" fontSize="9" fontFamily="monospace">{yMinLat.toFixed(2)}</text>
+
+                              {/* X-Axis Tick Labels */}
+                              <text x="50" y="196" textAnchor="middle" fill="var(--text-muted)" fontSize="9" fontFamily="monospace">{minTemp.toFixed(0)} K</text>
+                              <text x="265" y="196" textAnchor="middle" fill="var(--text-muted)" fontSize="9" fontFamily="monospace">{((minTemp + maxTemp) / 2).toFixed(0)} K</text>
+                              <text x="480" y="196" textAnchor="middle" fill="var(--text-muted)" fontSize="9" fontFamily="monospace">{maxTemp.toFixed(0)} K</text>
+
+                              {/* Plot lines */}
+                              <polyline points={getPoints('a_lengths')} stroke="#6366F1" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+                              <polyline points={getPoints('b_lengths')} stroke="#10B981" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+                              <polyline points={getPoints('c_lengths')} stroke="#EF4444" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+                            </svg>
+                          )
+                        })()}
                       </div>
 
                       {/* Volumes Chart */}
                       <div className="chart-container">
-                        <h4 style={{ marginBottom: '12px', fontSize: '13px' }}>Volume - Å³</h4>
-                        <div style={{ display: 'flex', gap: '16px', fontSize: '11px', color: 'var(--text-muted)', marginBottom: '8px' }}>
+                        <h4 style={{ marginBottom: '12px', fontSize: '13px', textAlign: 'center' }}>Volume - Å³</h4>
+                        <div style={{ display: 'flex', gap: '16px', fontSize: '11px', color: 'var(--text-muted)', marginBottom: '8px', justifyContent: 'center' }}>
                           <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#10B981' }}></span> Volume</span>
                         </div>
                         {/* Custom SVG Line Chart */}
-                        <svg className="chart-svg" viewBox="0 0 500 200">
-                          {/* Y grid lines */}
-                          <line x1="40" y1="20" x2="480" y2="20" stroke="rgba(255,255,255,0.05)" />
-                          <line x1="40" y1="100" x2="480" y2="100" stroke="rgba(255,255,255,0.05)" />
-                          <line x1="40" y1="180" x2="480" y2="180" stroke="rgba(255,255,255,0.05)" />
-                          {/* X Axes */}
-                          <line x1="40" y1="180" x2="480" y2="180" stroke="rgba(255,255,255,0.1)" />
-                          <line x1="40" y1="20" x2="40" y2="180" stroke="rgba(255,255,255,0.1)" />
-                          
-                          {/* Plot lines */}
-                          {(() => {
-                            const steps = realtimeData.length
-                            const minVal = Math.min(...realtimeData.map(d => d.volumes)) - 10
-                            const maxVal = Math.max(...realtimeData.map(d => d.volumes)) + 10
-                            const range = maxVal - minVal || 1
+                        {(() => {
+                          const chartData = getChartDataWithTemp()
+                          const steps = chartData.length
+                          const volVals = chartData.map(d => d.volumes)
+                          const minVol = Math.min(...volVals)
+                          const maxVol = Math.max(...volVals)
+                          const rangeVol = maxVol - minVol || 1
+                          const yMinVol = minVol - rangeVol * 0.05
+                          const yMaxVol = maxVol + rangeVol * 0.05
+                          const yRangeVol = yMaxVol - yMinVol || 1
 
-                            const points = realtimeData.map((d, i) => {
-                              const x = 40 + (i / (steps - 1 || 1)) * 440
-                              const y = 180 - ((d.volumes - minVal) / range) * 160
+                          const minTemp = chartData[0]?.calculatedTemp || 0
+                          const maxTemp = chartData[steps - 1]?.calculatedTemp || 100
+                          const rangeTemp = maxTemp - minTemp || 1
+
+                          const getPoints = () => {
+                            return chartData.map((d) => {
+                              const x = 50 + ((d.calculatedTemp - minTemp) / rangeTemp) * 430
+                              const y = 180 - ((d.volumes - yMinVol) / yRangeVol) * 160
                               return `${x},${y}`
                             }).join(' ')
+                          }
 
-                            return (
-                              <polyline points={points} stroke="#10B981" strokeWidth="2" fill="none" />
-                            )
-                          })()}
-                        </svg>
+                          return (
+                            <svg className="chart-svg" viewBox="0 0 500 210" style={{ overflow: 'visible' }}>
+                              {/* Y grid lines */}
+                              <line x1="50" y1="20" x2="480" y2="20" stroke="rgba(255,255,255,0.05)" />
+                              <line x1="50" y1="73" x2="480" y2="73" stroke="rgba(255,255,255,0.05)" />
+                              <line x1="50" y1="126" x2="480" y2="126" stroke="rgba(255,255,255,0.05)" />
+                              <line x1="50" y1="180" x2="480" y2="180" stroke="rgba(255,255,255,0.1)" />
+                              {/* X Axes */}
+                              <line x1="50" y1="180" x2="480" y2="180" stroke="rgba(255,255,255,0.1)" />
+                              <line x1="50" y1="20" x2="50" y2="180" stroke="rgba(255,255,255,0.1)" />
+                              <line x1="265" y1="20" x2="265" y2="180" stroke="rgba(255,255,255,0.03)" />
+                              <line x1="480" y1="20" x2="480" y2="180" stroke="rgba(255,255,255,0.05)" />
+                              
+                              {/* Y-Axis Tick Labels */}
+                              <text x="42" y="24" textAnchor="end" fill="var(--text-muted)" fontSize="9" fontFamily="monospace">{yMaxVol.toFixed(1)}</text>
+                              <text x="42" y="77" textAnchor="end" fill="var(--text-muted)" fontSize="9" fontFamily="monospace">{(yMaxVol - yRangeVol * 1/3).toFixed(1)}</text>
+                              <text x="42" y="130" textAnchor="end" fill="var(--text-muted)" fontSize="9" fontFamily="monospace">{(yMaxVol - yRangeVol * 2/3).toFixed(1)}</text>
+                              <text x="42" y="184" textAnchor="end" fill="var(--text-muted)" fontSize="9" fontFamily="monospace">{yMinVol.toFixed(1)}</text>
+
+                              {/* X-Axis Tick Labels */}
+                              <text x="50" y="196" textAnchor="middle" fill="var(--text-muted)" fontSize="9" fontFamily="monospace">{minTemp.toFixed(0)} K</text>
+                              <text x="265" y="196" textAnchor="middle" fill="var(--text-muted)" fontSize="9" fontFamily="monospace">{((minTemp + maxTemp) / 2).toFixed(0)} K</text>
+                              <text x="480" y="196" textAnchor="middle" fill="var(--text-muted)" fontSize="9" fontFamily="monospace">{maxTemp.toFixed(0)} K</text>
+
+                              {/* Plot lines */}
+                              <polyline points={getPoints()} stroke="#10B981" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+                            </svg>
+                          )
+                        })()}
                       </div>
 
                     </div>
@@ -1111,7 +1192,7 @@ export default function App() {
                     </div>
                     <div className="form-group" style={{ flex: 1 }}>
                       <label>Replace With</label>
-                      <input type="text" className="form-input" value={cifEditorParams.replaceTo}
+                      <input type="text" className="form-input" value={cifEditorParams.operation === 'Vacancy' ? '' : cifEditorParams.replaceTo}
                         disabled={cifEditorParams.operation === 'Vacancy'}
                         onChange={e => setCifEditorParams({...cifEditorParams, replaceTo: e.target.value})} />
                     </div>
