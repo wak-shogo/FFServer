@@ -380,6 +380,143 @@ def maintenance_restart():
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to execute restart script: {str(e)}")
 
+def read_last_lines(filepath, n_lines=1000):
+    if not os.path.exists(filepath):
+        return f"[Log file not found: {filepath}]"
+    try:
+        file_size = os.path.getsize(filepath)
+        max_read = 1024 * 1024  # 1 MB limit
+        with open(filepath, 'rb') as f:
+            if file_size > max_read:
+                f.seek(file_size - max_read)
+            content = f.read()
+            text = content.decode('utf-8', errors='replace')
+            lines = text.split('\n')
+            return '\n'.join(lines[-n_lines:])
+    except Exception as e:
+        return f"Error reading log {filepath}: {str(e)}"
+
+@app.get("/api/system/status")
+def get_system_status():
+    import subprocess
+    import shutil
+    import torch
+    
+    cpu_count = os.cpu_count() or 0
+    ram_info = "N/A"
+    try:
+        ram_info = subprocess.check_output(["free", "-h"], text=True)
+    except:
+        pass
+        
+    total, used, free = 0, 0, 0
+    try:
+        disk_use = shutil.disk_usage("/workspace")
+        total = disk_use.total / (1024**3)
+        used = disk_use.used / (1024**3)
+        free = disk_use.free / (1024**3)
+    except:
+        pass
+        
+    cuda_available = torch.cuda.is_available()
+    device_count = torch.cuda.device_count() if cuda_available else 0
+    devices = []
+    if cuda_available:
+        for i in range(device_count):
+            try:
+                devices.append({
+                    "id": i,
+                    "name": torch.cuda.get_device_name(i),
+                    "capability": torch.cuda.get_device_capability(i),
+                    "memory_allocated": torch.cuda.memory_allocated(i) / (1024**2),
+                    "memory_reserved": torch.cuda.memory_reserved(i) / (1024**2)
+                })
+            except Exception as e:
+                devices.append({"id": i, "error": str(e)})
+                
+    nvidia_smi = "N/A"
+    if cuda_available or os.path.exists("/usr/bin/nvidia-smi"):
+        try:
+            nvidia_smi = subprocess.check_output(["nvidia-smi"], text=True)
+        except Exception as e:
+            nvidia_smi = f"Failed to run nvidia-smi: {str(e)}"
+            
+    ps_aux = "N/A"
+    try:
+        ps_aux = subprocess.check_output(["ps", "aux"], text=True)
+    except Exception as e:
+        ps_aux = f"Failed to run ps: {str(e)}"
+        
+    supervisor_status = "N/A"
+    try:
+        supervisor_status = subprocess.check_output(["supervisorctl", "status"], text=True)
+    except Exception as e:
+        supervisor_status = f"Failed to run supervisorctl: {str(e)}"
+        
+    return {
+        "cpu_count": cpu_count,
+        "ram_info": ram_info.strip(),
+        "disk": {
+            "total_gb": round(total, 2),
+            "used_gb": round(used, 2),
+            "free_gb": round(free, 2)
+        },
+        "cuda": {
+            "available": cuda_available,
+            "device_count": device_count,
+            "devices": devices,
+            "pytorch_version": torch.__version__
+        },
+        "nvidia_smi": nvidia_smi.strip(),
+        "ps_aux": ps_aux.strip(),
+        "supervisor_status": supervisor_status.strip()
+    }
+
+@app.get("/api/system/logs/{log_type}")
+def get_system_log(log_type: str, tail: int = 1000, download: bool = False):
+    log_map = {
+        "worker": "/workspace/simulation_projects/worker_internal.log",
+        "api_stdout": "/var/log/supervisor/api_stdout.log",
+        "api_stderr": "/var/log/supervisor/api_stderr.log",
+        "jupyter_stdout": "/var/log/supervisor/jupyter_stdout.log",
+        "jupyter_stderr": "/var/log/supervisor/jupyter_stderr.log",
+        "supervisord": "/var/log/supervisor/supervisord.log"
+    }
+    if log_type not in log_map:
+        raise HTTPException(status_code=400, detail="Invalid log type")
+        
+    filepath = log_map[log_type]
+    if download:
+        if not os.path.exists(filepath):
+            raise HTTPException(status_code=404, detail="Log file not found")
+        return FileResponse(filepath, filename=f"{log_type}.log", media_type="text/plain")
+        
+    return {"log_type": log_type, "content": read_last_lines(filepath, tail)}
+
+@app.post("/api/system/logs/{log_type}/clear")
+def clear_system_log(log_type: str):
+    log_map = {
+        "worker": "/workspace/simulation_projects/worker_internal.log",
+        "api_stdout": "/var/log/supervisor/api_stdout.log",
+        "api_stderr": "/var/log/supervisor/api_stderr.log",
+        "jupyter_stdout": "/var/log/supervisor/jupyter_stdout.log",
+        "jupyter_stderr": "/var/log/supervisor/jupyter_stderr.log",
+        "supervisord": "/var/log/supervisor/supervisord.log"
+    }
+    if log_type not in log_map:
+        raise HTTPException(status_code=400, detail="Invalid log type")
+        
+    filepath = log_map[log_type]
+    if not os.path.exists(filepath):
+        raise HTTPException(status_code=404, detail="Log file not found")
+        
+    try:
+        with open(filepath, 'w') as f:
+            f.truncate(0)
+        return {"message": f"Log file {log_type} cleared successfully."}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to clear log file: {str(e)}")
+
 # Mount React static files (must be at the bottom)
 FRONTEND_DIST = "frontend/dist"
 if not os.path.exists(FRONTEND_DIST):

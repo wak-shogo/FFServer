@@ -753,4 +753,83 @@ body {
   color: var(--color-danger);
 }
 
+/* Logs Dashboard Tab Layout */
+.logs-dashboard {
+  display: grid;
+  grid-template-columns: 320px 1fr;
+  gap: 24px;
+  height: 100%;
+}
+
+.logs-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.logs-main {
+  min-width: 0; /* Prevent grid overflow */
+}
+
+.pre-status {
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  padding: 10px;
+  font-family: monospace;
+  font-size: 12px;
+  color: #94A3B8;
+  overflow: auto;
+  white-space: pre;
+  margin: 0;
+  text-align: left;
+}
+
+.system-metrics {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.metric-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 13.5px;
+}
+
+.metric-label {
+  color: var(--text-muted);
+}
+
+.metric-value {
+  font-weight: 500;
+}
+
+.text-success {
+  color: var(--color-success) !important;
+}
+
+.text-danger {
+  color: var(--color-danger) !important;
+}
+
+.text-primary {
+  color: var(--color-primary) !important;
+}
+
+/* Spin animation for Refresh Button */
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.spin {
+  animation: spin 1s linear infinite;
+}
+
 

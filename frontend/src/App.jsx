@@ -2,11 +2,11 @@ import React, { useState, useEffect, useRef } from 'react'
 import { 
   Play, StopCircle, RefreshCw, Trash2, Download, 
   Settings, Layers, Edit, Activity, FileText, CheckCircle2, AlertTriangle, FileCode,
-  UploadCloud
+  UploadCloud, Terminal, Server, Cpu
 } from 'lucide-react'
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState('dashboard') // 'dashboard', 'projects', 'editor', 'optimizer'
+  const [activeTab, setActiveTab] = useState('dashboard') // 'dashboard', 'projects', 'editor', 'optimizer', 'logs'
   
   // State from Backend API
   const [systemStatus, setSystemStatus] = useState({
@@ -15,6 +15,14 @@ export default function App() {
     current_job: null,
     queue: []
   })
+  
+  // System Log and Resource Status States
+  const [logType, setLogType] = useState('worker')
+  const [logContent, setLogContent] = useState('')
+  const [tailLines, setTailLines] = useState(500)
+  const [autoRefreshLogs, setAutoRefreshLogs] = useState(false)
+  const [detailedStatus, setDetailedStatus] = useState(null)
+  const [isLogsLoading, setIsLogsLoading] = useState(false)
   
   // Realtime chart data
   const [realtimeData, setRealtimeData] = useState([])
@@ -128,6 +136,72 @@ export default function App() {
       console.error("Failed to fetch project details:", err)
     }
   }
+
+  const fetchSystemLogs = async (type = logType, tail = tailLines) => {
+    try {
+      setIsLogsLoading(true)
+      const res = await fetch(`/api/system/logs/${type}?tail=${tail}`)
+      if (res.ok) {
+        const data = await res.json()
+        setLogContent(data.content)
+      } else {
+        setLogContent(`Error fetching logs: ${res.statusText}`)
+      }
+    } catch (err) {
+      setLogContent(`Network error fetching logs: ${err.message}`)
+    } finally {
+      setIsLogsLoading(false)
+    }
+  }
+
+  const fetchDetailedStatus = async () => {
+    try {
+      const res = await fetch('/api/system/status')
+      if (res.ok) {
+        const data = await res.json()
+        setDetailedStatus(data)
+      }
+    } catch (err) {
+      console.error("Error fetching detailed system status:", err)
+    }
+  }
+
+  const clearSystemLog = async (type = logType) => {
+    if (!window.confirm(`Are you sure you want to clear/truncate the ${type} log?`)) return
+    try {
+      const res = await fetch(`/api/system/logs/${type}/clear`, { method: 'POST' })
+      if (res.ok) {
+        alert(`Log ${type} cleared successfully.`)
+        fetchSystemLogs(type, tailLines)
+      } else {
+        const data = await res.json()
+        alert(`Failed to clear log: ${data.detail || res.statusText}`)
+      }
+    } catch (err) {
+      alert(`Error clearing log: ${err.message}`)
+    }
+  }
+
+  // Polling for system logs and status when log tab is active or auto refresh is enabled
+  useEffect(() => {
+    if (activeTab === 'logs') {
+      fetchSystemLogs(logType, tailLines)
+      fetchDetailedStatus()
+    }
+  }, [activeTab, logType, tailLines])
+
+  useEffect(() => {
+    let intervalId = null
+    if (activeTab === 'logs' && autoRefreshLogs) {
+      intervalId = setInterval(() => {
+        fetchSystemLogs(logType, tailLines)
+        fetchDetailedStatus()
+      }, 5000)
+    }
+    return () => {
+      if (intervalId) clearInterval(intervalId)
+    }
+  }, [activeTab, logType, tailLines, autoRefreshLogs])
 
   // Periodic polling
   useEffect(() => {
@@ -776,6 +850,9 @@ export default function App() {
           <button className={`tab-btn ${activeTab === 'editor' ? 'active' : ''}`} onClick={() => setActiveTab('editor')}>
             <Edit size={18} /> CIF Structure Editor
           </button>
+          <button className={`tab-btn ${activeTab === 'logs' ? 'active' : ''}`} onClick={() => setActiveTab('logs')}>
+            <Terminal size={18} /> System Logs & Status
+          </button>
         </nav>
 
         {/* Tab Panels */}
@@ -1289,6 +1366,205 @@ export default function App() {
                 )}
               </div>
 
+            </div>
+          )}
+
+          {activeTab === 'logs' && (
+            <div className="logs-dashboard">
+              
+              {/* Left Column: System Status Sidebar */}
+              <div className="logs-sidebar">
+                
+                {/* 1. Supervisor Services */}
+                <div className="dashboard-card">
+                  <h3><Server size={18} style={{ verticalAlign: 'text-bottom', marginRight: '6px' }} /> Supervisor Services</h3>
+                  <div className="status-grid">
+                    {detailedStatus ? (
+                      <pre className="pre-status">{detailedStatus.supervisor_status}</pre>
+                    ) : (
+                      <p className="loading-text">Loading Supervisor status...</p>
+                    )}
+                  </div>
+                </div>
+
+                {/* 2. CUDA & GPU Information */}
+                <div className="dashboard-card">
+                  <h3><Cpu size={18} style={{ verticalAlign: 'text-bottom', marginRight: '6px' }} /> PyTorch CUDA / GPU</h3>
+                  {detailedStatus ? (
+                    <div className="system-metrics">
+                      <div className="metric-row">
+                        <span className="metric-label">CUDA Available:</span>
+                        <span className={`metric-value ${detailedStatus.cuda.available ? 'text-success' : 'text-danger'}`}>
+                          {detailedStatus.cuda.available ? 'YES' : 'NO (CPU Fallback)'}
+                        </span>
+                      </div>
+                      <div className="metric-row">
+                        <span className="metric-label">Device Count:</span>
+                        <span className="metric-value">{detailedStatus.cuda.device_count}</span>
+                      </div>
+                      <div className="metric-row">
+                        <span className="metric-label">PyTorch Version:</span>
+                        <span className="metric-value">{detailedStatus.cuda.pytorch_version}</span>
+                      </div>
+                      {detailedStatus.cuda.devices.map((dev, idx) => (
+                        <div key={idx} className="gpu-device-card" style={{ marginTop: '10px', paddingTop: '10px', borderTop: '1px solid var(--border-color)' }}>
+                          <div className="metric-row">
+                            <span className="metric-label">GPU {dev.id}:</span>
+                            <span className="metric-value font-semibold text-primary">{dev.name || "N/A"}</span>
+                          </div>
+                          {dev.capability && (
+                            <div className="metric-row">
+                              <span className="metric-label">Compute Capability:</span>
+                              <span className="metric-value">{dev.capability.join('.')}</span>
+                            </div>
+                          )}
+                          {dev.memory_allocated !== undefined && (
+                            <div className="metric-row">
+                              <span className="metric-label">VRAM Allocated:</span>
+                              <span className="metric-value">{dev.memory_allocated.toFixed(1)} MB</span>
+                            </div>
+                          )}
+                          {dev.error && (
+                            <div className="metric-row" style={{ flexDirection: 'column', alignItems: 'stretch' }}>
+                              <span className="metric-label text-danger">Error:</span>
+                              <span className="metric-value text-danger" style={{ fontSize: '11px', whiteSpace: 'pre-wrap' }}>{dev.error}</span>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="loading-text">Loading GPU status...</p>
+                  )}
+                </div>
+
+                {/* 3. Container Hardware Stats */}
+                <div className="dashboard-card">
+                  <h3>Resource Usage</h3>
+                  {detailedStatus ? (
+                    <div className="system-metrics">
+                      <div className="metric-row">
+                        <span className="metric-label">Available CPU Cores:</span>
+                        <span className="metric-value">{detailedStatus.cpu_count}</span>
+                      </div>
+                      <div className="metric-row" style={{ flexDirection: 'column', alignItems: 'stretch' }}>
+                        <span className="metric-label">Memory Info (RAM):</span>
+                        <pre className="pre-status" style={{ fontSize: '11px', marginTop: '6px' }}>{detailedStatus.ram_info}</pre>
+                      </div>
+                      <div className="metric-row">
+                        <span className="metric-label">Disk Total:</span>
+                        <span className="metric-value">{detailedStatus.disk.total_gb} GB</span>
+                      </div>
+                      <div className="metric-row">
+                        <span className="metric-label">Disk Used:</span>
+                        <span className="metric-value">{detailedStatus.disk.used_gb} GB ({Math.round(detailedStatus.disk.used_gb / detailedStatus.disk.total_gb * 100) || 0}%)</span>
+                      </div>
+                      <div className="metric-row">
+                        <span className="metric-label">Disk Free:</span>
+                        <span className="metric-value text-success">{detailedStatus.disk.free_gb} GB</span>
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="loading-text">Loading Hardware stats...</p>
+                  )}
+                </div>
+                
+              </div>
+
+              {/* Right Column: Console Log Viewer */}
+              <div className="logs-main">
+                <div className="dashboard-card" style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+                  <div className="logs-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '15px', borderBottom: '1px solid var(--border-color)', paddingBottom: '15px', marginBottom: '15px' }}>
+                    <h3 style={{ margin: 0 }}><Terminal size={18} style={{ verticalAlign: 'text-bottom', marginRight: '6px' }} /> Container Log Console</h3>
+                    
+                    <div className="logs-controls" style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+                      {/* Log Type Select */}
+                      <select 
+                        className="form-input" 
+                        value={logType} 
+                        onChange={(e) => {
+                          setLogType(e.target.value)
+                          fetchSystemLogs(e.target.value, tailLines)
+                        }}
+                        style={{ width: 'auto', padding: '6px 12px' }}
+                      >
+                        <option value="worker">Worker Internal Log</option>
+                        <option value="api_stdout">FastAPI Server stdout</option>
+                        <option value="api_stderr">FastAPI Server stderr</option>
+                        <option value="jupyter_stdout">Jupyter Lab stdout</option>
+                        <option value="jupyter_stderr">Jupyter Lab stderr</option>
+                        <option value="supervisord">Supervisord Log</option>
+                      </select>
+
+                      {/* Tail Lines Select */}
+                      <select
+                        className="form-input"
+                        value={tailLines}
+                        onChange={(e) => {
+                          const lines = Number(e.target.value)
+                          setTailLines(lines)
+                          fetchSystemLogs(logType, lines)
+                        }}
+                        style={{ width: 'auto', padding: '6px 12px' }}
+                      >
+                        <option value="100">Last 100 lines</option>
+                        <option value="500">Last 500 lines</option>
+                        <option value="1000">Last 1000 lines</option>
+                        <option value="2000">Last 2000 lines</option>
+                      </select>
+
+                      {/* Auto Refresh */}
+                      <label className="checkbox-label" style={{ fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--text-muted)' }}>
+                        <input 
+                          type="checkbox" 
+                          checked={autoRefreshLogs} 
+                          onChange={(e) => setAutoRefreshLogs(e.target.checked)} 
+                        />
+                        Auto Refresh (5s)
+                      </label>
+
+                      {/* Refresh Now */}
+                      <button className="btn btn-secondary" onClick={() => { fetchSystemLogs(logType, tailLines); fetchDetailedStatus(); }} disabled={isLogsLoading} style={{ padding: '6px 12px' }}>
+                        <RefreshCw size={14} className={isLogsLoading ? 'spin' : ''} />
+                      </button>
+
+                      {/* Clear Log */}
+                      <button className="btn btn-danger" onClick={() => clearSystemLog(logType)} style={{ padding: '6px 12px' }}>
+                        <Trash2 size={14} /> Clear Log
+                      </button>
+
+                      {/* Download */}
+                      <a 
+                        className="btn btn-primary" 
+                        href={`/api/system/logs/${logType}?download=true`} 
+                        download
+                        style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 12px' }}
+                      >
+                        <Download size={14} /> Download
+                      </a>
+                    </div>
+                  </div>
+
+                  {/* Log Console Box */}
+                  <div className="log-console-box" style={{ flex: 1, minHeight: '350px', background: '#0F172A', border: '1px solid #1E293B', borderRadius: '8px', padding: '15px', overflow: 'auto', maxHeight: '550px' }}>
+                    <pre className="console-text" style={{ margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-all', fontFamily: 'Courier New, Courier, monospace', fontSize: '12px', color: '#E2E8F0', textAlign: 'left' }}>{logContent || "No logs loaded."}</pre>
+                  </div>
+
+                  {/* Process List (ps aux) & nvidia-smi */}
+                  <div className="logs-extra-grid" style={{ marginTop: '20px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+                    <div className="logs-extra-section" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      <h4 style={{ margin: 0, color: 'var(--text-color)' }}>Active Container Processes (ps aux)</h4>
+                      <pre className="pre-extra-status" style={{ flex: 1, maxHeight: '200px', background: '#1E293B', border: '1px solid var(--border-color)', borderRadius: '6px', padding: '10px', overflow: 'auto', fontSize: '11px', color: '#94A3B8', fontFamily: 'monospace', margin: 0, textAlign: 'left' }}>{detailedStatus?.ps_aux || "Loading..."}</pre>
+                    </div>
+                    <div className="logs-extra-section" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      <h4 style={{ margin: 0, color: 'var(--text-color)' }}>System GPU Status (nvidia-smi)</h4>
+                      <pre className="pre-extra-status" style={{ flex: 1, maxHeight: '200px', background: '#1E293B', border: '1px solid var(--border-color)', borderRadius: '6px', padding: '10px', overflow: 'auto', fontSize: '11px', color: '#94A3B8', fontFamily: 'monospace', margin: 0, textAlign: 'left' }}>{detailedStatus?.nvidia_smi || "Loading..."}</pre>
+                    </div>
+                  </div>
+                  
+                </div>
+              </div>
+              
             </div>
           )}
 
