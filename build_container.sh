@@ -1,1 +1,1 @@
-docker build -t nequip-olm-jupyter .
+docker build --network=host -t nequip-olm-jupyter .

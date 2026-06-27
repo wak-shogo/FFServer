@@ -49,6 +49,9 @@ RUN pip3 install --default-timeout=1000 --no-cache-dir \
 # 3. MLFFモデルをインストール (CHGNetのみ)
 RUN pip3 install --default-timeout=1000 --no-cache-dir chgnet
 
+# 4. PyTorchをCUDA 12.8ビルドにアップグレードして Blackwell (RTX 5090) をサポート
+RUN pip3 install --no-cache-dir --upgrade torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128 --trusted-host download.pytorch.org
+
 # Copy built React frontend from Stage 1
 COPY --from=frontend-builder /app/dist /opt/frontend/dist
 
