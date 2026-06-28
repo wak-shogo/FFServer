@@ -43,8 +43,12 @@ def get_calculator(model_name, use_device='cuda'):
             
             print("Warning: CHGNet device initialization failed. Falling back to CPU.")
             return CHGNetCalculator(use_device='cpu')
+    elif model_name.startswith("matris_") or model_name == "MatRIS":
+        from matris.applications.base import MatRISCalculator
+        m_name = model_name if model_name != "MatRIS" else "matris_10m_oam"
+        return MatRISCalculator(model=m_name, task="efsm", device=use_device)
     else:
-        raise ValueError(f"Unknown or unsupported model specified: {model_name}. Only 'CHGNet' is supported in this simplified build.")
+        raise ValueError(f"Unknown or unsupported model specified: {model_name}. Supported models are 'CHGNet' and 'matris_10m_oam'/'matris_10m_mp'.")
 
 def clear_memory():
     gc.collect()
@@ -138,7 +142,8 @@ def _run_single_temp_npt(params):
         if magmom_specie:
             species_list = [s.strip() for s in magmom_specie.split(',') if s.strip()]
             from chgnet.model.dynamics import CHGNetCalculator
-            if isinstance(atoms.calc, CHGNetCalculator):
+            from matris.applications.base import MatRISCalculator
+            if isinstance(atoms.calc, (CHGNetCalculator, MatRISCalculator)):
                 symbols = atoms.get_chemical_symbols()
                 for target_s in species_list:
                     count = 1

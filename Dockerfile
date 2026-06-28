@@ -52,6 +52,10 @@ RUN pip3 install --default-timeout=1000 --no-cache-dir chgnet
 # 4. PyTorchをCUDA 12.8ビルドにアップグレードして Blackwell (RTX 5090) をサポート
 RUN pip3 install --no-cache-dir --upgrade torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128 --trusted-host download.pytorch.org
 
+# 5. Copy and install MatRIS (local copy includes Hugging Face download URL patches)
+COPY MatRIS /opt/MatRIS
+RUN pip3 install --no-deps /opt/MatRIS
+
 # Copy built React frontend from Stage 1
 COPY --from=frontend-builder /app/dist /opt/frontend/dist
 
