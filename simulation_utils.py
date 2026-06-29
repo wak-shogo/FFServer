@@ -22,33 +22,42 @@ from ase.md.langevin import Langevin
 from ase.md.npt import NPT
 from ase import units, Atoms
 
+_CALCULATOR_CACHE = {}
+
 def get_calculator(model_name, use_device='cuda'):
     # Check if CUDA is actually available if requested
     if use_device == 'cuda' and not torch.cuda.is_available():
         print("Warning: CUDA requested but not available. Falling back to CPU.")
         use_device = 'cpu'
 
+    cache_key = (model_name, use_device)
+    if cache_key in _CALCULATOR_CACHE:
+        return _CALCULATOR_CACHE[cache_key]
+
     if model_name == "CHGNet":
         from chgnet.model.dynamics import CHGNetCalculator
         try:
-            return CHGNetCalculator(use_device=use_device)
+            calc = CHGNetCalculator(use_device=use_device)
         except IndexError:
             # Fallback for the "list index out of range" error in determine_device
             if use_device == 'cuda':
                 print("Warning: CHGNet auto-device detection failed (IndexError). Attempting 'cuda:0'.")
                 try:
-                    return CHGNetCalculator(use_device='cuda:0')
+                    calc = CHGNetCalculator(use_device='cuda:0')
                 except Exception:
                     pass
             
             print("Warning: CHGNet device initialization failed. Falling back to CPU.")
-            return CHGNetCalculator(use_device='cpu')
+            calc = CHGNetCalculator(use_device='cpu')
     elif model_name.startswith("matris_") or model_name == "MatRIS":
         from matris.applications.base import MatRISCalculator
         m_name = model_name if model_name != "MatRIS" else "matris_10m_oam"
-        return MatRISCalculator(model=m_name, task="efsm", device=use_device)
+        calc = MatRISCalculator(model=m_name, task="efsm", device=use_device)
     else:
         raise ValueError(f"Unknown or unsupported model specified: {model_name}. Supported models are 'CHGNet' and 'matris_10m_oam'/'matris_10m_mp'.")
+
+    _CALCULATOR_CACHE[cache_key] = calc
+    return calc
 
 def clear_memory():
     gc.collect()
