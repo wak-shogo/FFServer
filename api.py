@@ -146,7 +146,8 @@ async def add_npt_jobs(
 async def add_optimize_job(
     files: List[UploadFile] = File(...),
     model: str = Form(...),
-    project_prefix: str = Form(...)
+    project_prefix: str = Form(...),
+    fmax: float = Form(0.01)
 ):
     import ase.io
     queue = get_queue()
@@ -179,6 +180,7 @@ async def add_optimize_job(
                 "original_filename": file.filename,
                 "project_name": final_project_name,
                 "model": model,
+                "params": {"fmax": fmax}
             }
             queue.append(job_info)
             added_jobs += 1
@@ -208,6 +210,17 @@ def get_realtime():
     try:
         df = pd.read_csv(REALTIME_DATA_FILE)
         return df.to_dict(orient="records")
+    except Exception:
+        return []
+
+@app.get("/api/jobs/opt_realtime")
+def get_opt_realtime():
+    file_path = "/workspace/simulation_projects/opt_realtime.json"
+    if not os.path.exists(file_path):
+        return []
+    try:
+        with open(file_path, "r") as f:
+            return json.load(f)
     except Exception:
         return []
 

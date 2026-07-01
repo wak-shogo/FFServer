@@ -50,8 +50,11 @@ export default function App() {
   
   const [optParams, setOptParams] = useState({
     selectedModel: 'CHGNet',
-    projectPrefix: ''
+    projectPrefix: '',
+    fmax: 0.01
   })
+  
+  const [optRealtimeData, setOptRealtimeData] = useState([])
   
   const [cifEditorParams, setCifEditorParams] = useState({
     operation: 'Substitution', // 'Substitution' or 'Vacancy'
@@ -107,6 +110,23 @@ export default function App() {
       }
     } catch (err) {
       console.error("Failed to fetch realtime data:", err)
+    }
+  }
+
+  // Fetch realtime data for structure optimization
+  const fetchOptRealtime = async () => {
+    if (!systemStatus.current_job) {
+      setOptRealtimeData([])
+      return
+    }
+    try {
+      const res = await fetch('/api/jobs/opt_realtime')
+      if (res.ok) {
+        const data = await res.json()
+        setOptRealtimeData(data)
+      }
+    } catch (err) {
+      console.error("Failed to fetch opt realtime data:", err)
     }
   }
 
@@ -217,13 +237,23 @@ export default function App() {
 
   useEffect(() => {
     if (systemStatus.current_job) {
-      fetchRealtime()
-      const chartInterval = setInterval(() => {
+      const isOpt = systemStatus.current_job.job_type === 'optimize_only'
+      if (isOpt) {
+        fetchOptRealtime()
+      } else {
         fetchRealtime()
-      }, 5000)
+      }
+      const chartInterval = setInterval(() => {
+        if (isOpt) {
+          fetchOptRealtime()
+        } else {
+          fetchRealtime()
+        }
+      }, 3000)
       return () => clearInterval(chartInterval)
     } else {
       setRealtimeData([])
+      setOptRealtimeData([])
     }
   }, [systemStatus.current_job])
 
@@ -420,6 +450,7 @@ export default function App() {
     })
     formData.append("model", optParams.selectedModel)
     formData.append("project_prefix", optParams.projectPrefix || new Date().toISOString().slice(0,10).replace(/-/g,""))
+    formData.append("fmax", optParams.fmax || 0.01)
 
     try {
       const res = await fetch('/api/jobs/optimize', {
@@ -772,6 +803,16 @@ export default function App() {
             </div>
 
             <div className="form-group">
+              <label>Target fmax (eV/Å)</label>
+              <input type="number" className="form-input" step="0.0001" min="0.0001" max="1.0"
+                value={optParams.fmax}
+                onChange={e => setOptParams({...optParams, fmax: parseFloat(e.target.value) || 0.01})} />
+              <small style={{ color: 'var(--text-muted)', display: 'block', marginTop: '4px' }}>
+                Convergence threshold. Default is 0.01.
+              </small>
+            </div>
+
+            <div className="form-group">
               <label>Project Name Prefix</label>
               <input type="text" className="form-input" placeholder="e.g. 20260625" 
                 value={optParams.projectPrefix}
@@ -880,6 +921,29 @@ export default function App() {
                           Type: {systemStatus.current_job.job_type === 'optimize_only' ? 'Optimization' : 'NPT Simulation'}<br/>
                           Model: {systemStatus.current_job.model}
                         </span>
+                        
+                        {(systemStatus.current_job.progress !== undefined || systemStatus.current_job.status_message || systemStatus.current_job.eta) && (
+                          <div style={{ marginTop: '10px', paddingTop: '10px', borderTop: '1px solid rgba(255,255,255,0.15)' }}>
+                            {systemStatus.current_job.status_message && (
+                              <div style={{ fontSize: '11px', fontWeight: '500', marginBottom: '6px', color: '#FBBF24' }}>
+                                {systemStatus.current_job.status_message}
+                              </div>
+                            )}
+                            {systemStatus.current_job.progress !== undefined && systemStatus.current_job.progress > 0 && (
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '6px' }}>
+                                <div style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.2)', height: '8px', borderRadius: '4px', overflow: 'hidden' }}>
+                                  <div style={{ width: `${(systemStatus.current_job.progress * 100).toFixed(1)}%`, backgroundColor: '#10B981', height: '100%' }}></div>
+                                </div>
+                                <span style={{ fontSize: '11px', fontWeight: 'bold' }}>{(systemStatus.current_job.progress * 100).toFixed(0)}%</span>
+                              </div>
+                            )}
+                            {systemStatus.current_job.eta && (
+                              <div style={{ fontSize: '11px', opacity: 0.9, marginTop: '6px' }}>
+                                ⏱️ ETA: <strong style={{ color: '#FBBF24' }}>{systemStatus.current_job.eta}</strong>
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </div>
                       <button className="btn btn-danger" onClick={handleCancelJob}>
                         <StopCircle size={16} /> Stop Current Job
@@ -936,9 +1000,96 @@ export default function App() {
 
               {/* Real-time Monitoring Graphs */}
               <div className="dashboard-card" style={{ gap: '20px' }}>
-                <h3><Activity size={18} style={{ color: 'var(--color-info)' }} /> Live Monitoring (NPT Simulation only)</h3>
+                <h3><Activity size={18} style={{ color: 'var(--color-info)' }} /> Live Monitoring</h3>
                 
-                {systemStatus.current_job && systemStatus.current_job.job_type !== 'optimize_only' ? (
+                {systemStatus.current_job && systemStatus.current_job.job_type === 'optimize_only' ? (
+                  optRealtimeData.length > 0 ? (
+                    <div className="monitoring-section" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                      <div className="alert alert-success" style={{ margin: 0, padding: '8px 12px', fontSize: '13px' }}>
+                        📈 Structure Optimization Progress (FIRE Algorithm)
+                      </div>
+                      
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '16px' }}>
+                        <div className="chart-container" style={{ padding: '16px', backgroundColor: 'rgba(0,0,0,0.15)', borderRadius: '8px' }}>
+                          <h4 style={{ marginBottom: '8px', fontSize: '13px', textAlign: 'center' }}>Maximum Force Norm (eV/Å)</h4>
+                          {(() => {
+                            const data = optRealtimeData
+                            const maxFmax = Math.max(...data.map(d => d.fmax))
+                            const minFmax = Math.min(...data.map(d => d.fmax))
+                            const range = maxFmax - minFmax || 1
+                            const points = data.map((d, index) => {
+                              const x = (index / (data.length - 1 || 1)) * 100
+                              const y = 100 - ((d.fmax - minFmax) / range) * 100
+                              return `${x},${y}`
+                            }).join(' ')
+                            return (
+                              <div style={{ position: 'relative', height: '140px', width: '100%', borderBottom: '1px solid rgba(255,255,255,0.2)', borderLeft: '1px solid rgba(255,255,255,0.2)', boxSizing: 'border-box', marginTop: '12px' }}>
+                                <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none">
+                                  <polyline fill="none" stroke="#FBBF24" strokeWidth="2" points={points} />
+                                </svg>
+                                <span style={{ position: 'absolute', top: 0, left: '4px', fontSize: '9px', color: 'var(--text-muted)' }}>Max: {maxFmax.toFixed(4)}</span>
+                                <span style={{ position: 'absolute', bottom: 0, left: '4px', fontSize: '9px', color: 'var(--text-muted)' }}>Min: {minFmax.toFixed(4)}</span>
+                                <span style={{ position: 'absolute', bottom: '-15px', right: 0, fontSize: '9px', color: 'var(--text-muted)' }}>Step {data[data.length-1].step}</span>
+                              </div>
+                            )
+                          })()}
+                        </div>
+                        <div className="chart-container" style={{ padding: '16px', backgroundColor: 'rgba(0,0,0,0.15)', borderRadius: '8px' }}>
+                          <h4 style={{ marginBottom: '8px', fontSize: '13px', textAlign: 'center' }}>Potential Energy (eV)</h4>
+                          {(() => {
+                            const data = optRealtimeData
+                            const maxEnergy = Math.max(...data.map(d => d.energy))
+                            const minEnergy = Math.min(...data.map(d => d.energy))
+                            const range = maxEnergy - minEnergy || 1
+                            const points = data.map((d, index) => {
+                              const x = (index / (data.length - 1 || 1)) * 100
+                              const y = 100 - ((d.energy - minEnergy) / range) * 100
+                              return `${x},${y}`
+                            }).join(' ')
+                            return (
+                              <div style={{ position: 'relative', height: '140px', width: '100%', borderBottom: '1px solid rgba(255,255,255,0.2)', borderLeft: '1px solid rgba(255,255,255,0.2)', boxSizing: 'border-box', marginTop: '12px' }}>
+                                <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none">
+                                  <polyline fill="none" stroke="#6366F1" strokeWidth="2" points={points} />
+                                </svg>
+                                <span style={{ position: 'absolute', top: 0, left: '4px', fontSize: '9px', color: 'var(--text-muted)' }}>Max: {maxEnergy.toFixed(4)}</span>
+                                <span style={{ position: 'absolute', bottom: 0, left: '4px', fontSize: '9px', color: 'var(--text-muted)' }}>Min: {minEnergy.toFixed(4)}</span>
+                                <span style={{ position: 'absolute', bottom: '-15px', right: 0, fontSize: '9px', color: 'var(--text-muted)' }}>Step {data[data.length-1].step}</span>
+                              </div>
+                            )
+                          })()}
+                        </div>
+                      </div>
+
+                      <div style={{ maxHeight: '150px', overflowY: 'auto', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px', fontSize: '12px', marginTop: '10px' }}>
+                        <table className="job-table" style={{ margin: 0 }}>
+                          <thead>
+                            <tr>
+                              <th>Step</th>
+                              <th>Potential Energy (eV)</th>
+                              <th>Max Force Norm (eV/Å)</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {[...optRealtimeData].reverse().slice(0, 10).map((row, idx) => (
+                              <tr key={idx}>
+                                <td>{row.step}</td>
+                                <td>{row.energy.toFixed(6)}</td>
+                                <td style={{ color: row.fmax < 0.01 ? 'var(--color-success)' : 'inherit' }}>
+                                  {row.fmax.toFixed(6)}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  ) : (
+                    <div style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '48px 0' }}>
+                      <RefreshCw size={24} className="pulse" style={{ margin: '0 auto 12px auto' }} />
+                      Waiting for structure optimization logs...
+                    </div>
+                  )
+                ) : systemStatus.current_job && systemStatus.current_job.job_type !== 'optimize_only' ? (
                   realtimeData.length > 0 ? (
                     <div className="monitoring-section">
                       
@@ -950,7 +1101,6 @@ export default function App() {
                           <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#10B981' }}></span> b</span>
                           <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#EF4444' }}></span> c</span>
                         </div>
-                        {/* Custom SVG Line Chart */}
                         {(() => {
                           const chartData = getChartDataWithTemp()
                           const steps = chartData.length
@@ -960,12 +1110,6 @@ export default function App() {
                           const rangeLat = maxLat - minLat || 1
                           const yMinLat = minLat - rangeLat * 0.05
                           const yMaxLat = maxLat + rangeLat * 0.05
-                          const yRangeLat = yMaxLat - yMinLat || 1
-
-                          const minTemp = chartData[0]?.calculatedTemp || 0
-                          const maxTemp = chartData[steps - 1]?.calculatedTemp || 100
-                          const rangeTemp = maxTemp - minTemp || 1
-
                           const getPoints = (key) => {
                             return chartData.map((d) => {
                               const x = 50 + ((d.calculatedTemp - minTemp) / rangeTemp) * 430

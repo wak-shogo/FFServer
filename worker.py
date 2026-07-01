@@ -24,6 +24,20 @@ REALTIME_DATA_FILE = os.path.join(PROJECTS_DIR, "realtime_data.csv")
 CANCEL_FLAG_FILE = os.path.join(PROJECTS_DIR, "cancel_job.flag")
 LOG_FILE = os.path.join(PROJECTS_DIR, "worker_internal.log")
 
+def update_current_job_progress(progress=0.0, eta=None, status_message=""):
+    if not os.path.exists(CURRENT_JOB_FILE):
+        return
+    try:
+        with open(CURRENT_JOB_FILE, 'r') as f:
+            job_details = json.load(f)
+        job_details["progress"] = progress
+        job_details["eta"] = eta
+        job_details["status_message"] = status_message
+        with open(CURRENT_JOB_FILE, 'w') as f:
+            json.dump(job_details, f)
+    except Exception as e:
+        print(f"Error updating current job progress: {e}")
+
 def run_job(job_details):
     project_name = job_details['project_name']
     original_filename = job_details['original_filename']
@@ -45,15 +59,28 @@ def run_job(job_details):
         atoms.set_scaled_positions(scaled_pos + 0.01)
         atoms.wrap()
         
-        notify.send_to_discord(f"⚙️ Worker started optimizing: `{project_name}`", color=3447003)
+        # Clean up opt_realtime.json at start
+        if os.path.exists("/workspace/simulation_projects/opt_realtime.json"):
+            try:
+                os.remove("/workspace/simulation_projects/opt_realtime.json")
+            except Exception:
+                pass
+
+        opt_start_time = time.time()
+        def opt_progress_callback(step, fmax_val, energy_val):
+            elapsed = time.time() - opt_start_time
+            status_msg = f"Step {step}: fmax={fmax_val:.4f} eV/Å, E={energy_val:.4f} eV (Elapsed: {int(elapsed)}s)"
+            update_current_job_progress(progress=0.0, eta="Iterative...", status_message=status_msg)
+
+        fmax_target = params.get("fmax", 0.01)
+        notify.send_to_discord(f"⚙️ Worker started optimizing: `{project_name}` with fmax={fmax_target}", color=3447003)
         
         # Check cancellation
         if os.path.exists(CANCEL_FLAG_FILE):
             notify.send_to_discord(f"🛑 Job `{project_name}` cancelled before optimization.")
             return
 
-        # Relaxed fmax to 0.05 to ensure convergence with ML potentials
-        opt_atoms, _, _ = sim.optimize_structure(atoms, model_name=model_name, fmax=0.05, cancel_check_file=CANCEL_FLAG_FILE)
+        opt_atoms, _, _ = sim.optimize_structure(atoms, model_name=model_name, fmax=fmax_target, cancel_check_file=CANCEL_FLAG_FILE, progress_callback=opt_progress_callback)
         
         # 🟢 メモリ節約
         if opt_atoms.calc is not None:
@@ -85,19 +112,50 @@ def run_job(job_details):
             temp_range = params['temp_range']
             temp_start, temp_end, temp_step = temp_range
             
-            def realtime_callback(current, total, message, partial_df=None):
-                print(f"Progress: {message}")
+            npt_start_time = time.time()
+            
+            def realtime_callback(current, total, message, partial_df=None, phase="heating"):
+                print(f"Progress ({phase}): {message}")
                 if partial_df is not None and not partial_df.empty:
                     partial_df.to_csv(REALTIME_DATA_FILE)
+
+                total_batches = total * 2 if enable_cooling else total
+                current_batch = current if phase == "heating" else total + current
+                
+                progress_val = float(current_batch) / float(total_batches) if total_batches > 0 else 0.0
+                elapsed = time.time() - npt_start_time
+                
+                eta_str = "Calculating..."
+                remaining = 0
+                if current_batch > 0:
+                    time_per_batch = elapsed / current_batch
+                    remaining = time_per_batch * (total_batches - current_batch)
+                    eta_time = time.time() + remaining
+                    eta_str = time.strftime("%H:%M:%S", time.localtime(eta_time))
+                else:
+                    remaining = 30.0 * total_batches
+                    eta_time = time.time() + remaining
+                    eta_str = time.strftime("%H:%M:%S", time.localtime(eta_time))
+                
+                status_msg = f"{phase.capitalize()} - {message} (Elapsed: {int(elapsed)}s)"
+                update_current_job_progress(progress=progress_val, eta=eta_str, status_message=status_msg)
+
+            def heating_callback(current, total, message, partial_df=None):
+                realtime_callback(current, total, message, partial_df, phase="heating")
+                
+            def cooling_callback(current, total, message, partial_df=None):
+                realtime_callback(current, total, message, partial_df, phase="cooling")
 
             traj_filepath = os.path.join(project_path, "trajectory.xyz")
             
             notify.send_to_discord(f"🔥 Heating phase started for: `{project_name}`", color=3447003)
+            update_current_job_progress(progress=0.0, eta="Calculating...", status_message="Heating phase started")
+            
             npt_df_heating, heating_final_struct, status_heating = sim.run_npt_simulation_parallel(
                 initial_atoms=opt_atoms, model_name=model_name, sim_mode=sim_mode,
                 magmom_specie=params['magmom_specie'], temp_range=temp_range,
                 time_step=1.0, eq_steps=params['eq_steps'], pressure=1.0,
-                n_gpu_jobs=params['n_gpu_jobs'], progress_callback=realtime_callback,
+                n_gpu_jobs=params['n_gpu_jobs'], progress_callback=heating_callback,
                 traj_filepath=traj_filepath, append_traj=False,
                 cancel_check_file=CANCEL_FLAG_FILE
             )
@@ -125,7 +183,7 @@ def run_job(job_details):
                     initial_atoms=cooling_initial_atoms, model_name=model_name, sim_mode=sim_mode,
                     magmom_specie=params['magmom_specie'], temp_range=cooling_temp_range,
                     time_step=1.0, eq_steps=params['eq_steps'], pressure=1.0,
-                    n_gpu_jobs=params['n_gpu_jobs'], progress_callback=realtime_callback,
+                    n_gpu_jobs=params['n_gpu_jobs'], progress_callback=cooling_callback,
                     traj_filepath=traj_filepath, append_traj=True,
                     cancel_check_file=CANCEL_FLAG_FILE
                 )
@@ -265,6 +323,11 @@ def main_worker_loop():
                     finally:
                         if os.path.exists(CURRENT_JOB_FILE): os.remove(CURRENT_JOB_FILE)
                         if os.path.exists(REALTIME_DATA_FILE): os.remove(REALTIME_DATA_FILE)
+                        if os.path.exists("/workspace/simulation_projects/opt_realtime.json"):
+                            try:
+                                os.remove("/workspace/simulation_projects/opt_realtime.json")
+                            except Exception:
+                                pass
                         if torch.cuda.is_available():
                             torch.cuda.empty_cache()
 

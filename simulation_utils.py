@@ -75,7 +75,7 @@ def clear_memory():
     gc.collect()
     if torch.cuda.is_available(): torch.cuda.empty_cache()
 
-def optimize_structure(atoms_obj, model_name, fmax=0.01, cancel_check_file=None):
+def optimize_structure(atoms_obj, model_name, fmax=0.01, cancel_check_file=None, progress_callback=None):
     energies, lattice_constants = [], []
     atoms_obj.calc = get_calculator(model_name)
     
@@ -84,9 +84,26 @@ def optimize_structure(atoms_obj, model_name, fmax=0.01, cancel_check_file=None)
         
     opt = FIRE(atoms_filter)
     
+    opt_history = []
+    
     def save_step_data(a=atoms_filter):
-        energies.append(a.atoms.get_potential_energy())
+        energy_val = float(a.atoms.get_potential_energy())
+        energies.append(energy_val)
         lattice_constants.append(np.mean(a.atoms.get_cell().lengths()))
+        try:
+            fmax_val = float(np.sqrt((a.get_forces() ** 2).sum(axis=1)).max())
+            step_val = int(opt.nsteps)
+            opt_history.append({
+                "step": step_val,
+                "energy": energy_val,
+                "fmax": fmax_val
+            })
+            with open("/workspace/simulation_projects/opt_realtime.json", "w") as f:
+                json.dump(opt_history, f)
+            if progress_callback:
+                progress_callback(step_val, fmax_val, energy_val)
+        except Exception as e:
+            print("Error saving optimization progress:", e)
     
     opt.attach(save_step_data)
     
