@@ -53,8 +53,20 @@ def get_calculator(model_name, use_device='cuda'):
         from matris.applications.base import MatRISCalculator
         m_name = model_name if model_name != "MatRIS" else "matris_10m_oam"
         calc = MatRISCalculator(model=m_name, task="efsm", device=use_device)
+    elif model_name.startswith("matgl_") or model_name.startswith("CHGNet-PES-"):
+        import matgl
+        from matgl.ext.ase import PESCalculator
+        if model_name == "matgl_chgnet_r2scan":
+            m_name = "CHGNet-PES-MatPES-r2SCAN-2025.2.10"
+        elif model_name == "matgl_chgnet_pbe":
+            m_name = "CHGNet-PES-MatPES-PBE-2025.2.10"
+        else:
+            m_name = model_name
+        pot = matgl.load_model(m_name)
+        pot = pot.to(use_device)
+        calc = PESCalculator(pot)
     else:
-        raise ValueError(f"Unknown or unsupported model specified: {model_name}. Supported models are 'CHGNet' and 'matris_10m_oam'/'matris_10m_mp'.")
+        raise ValueError(f"Unknown or unsupported model specified: {model_name}. Supported models are 'CHGNet', 'matris_10m_oam'/'matris_10m_mp', and 'matgl_chgnet_r2scan'.")
 
     _CALCULATOR_CACHE[cache_key] = calc
     return calc
@@ -152,7 +164,8 @@ def _run_single_temp_npt(params):
             species_list = [s.strip() for s in magmom_specie.split(',') if s.strip()]
             from chgnet.model.dynamics import CHGNetCalculator
             from matris.applications.base import MatRISCalculator
-            if isinstance(atoms.calc, (CHGNetCalculator, MatRISCalculator)):
+            from matgl.ext.ase import PESCalculator
+            if isinstance(atoms.calc, (CHGNetCalculator, MatRISCalculator, PESCalculator)):
                 symbols = atoms.get_chemical_symbols()
                 for target_s in species_list:
                     count = 1
@@ -184,7 +197,12 @@ def _run_single_temp_npt(params):
                     all_magmoms = atoms.get_magnetic_moments()
                     for i, atom_idx in enumerate(magmom_indices):
                         key = magmom_column_keys[i]
-                        results_data[key].append(all_magmoms[atom_idx])
+                        val = all_magmoms[atom_idx]
+                        if hasattr(val, "__len__"):
+                            val = float(val[0])
+                        else:
+                            val = float(val)
+                        results_data[key].append(val)
                 except Exception as e:
                     print(f"Warning: Failed to retrieve magnetic moments: {e}. Disabling magnetic moment tracking for this run.")
                     # Clean up results_data to avoid length mismatch

@@ -610,6 +610,7 @@ export default function App() {
               <select className="form-select" value={nptParams.selectedModel}
                 onChange={e => setNptParams({...nptParams, selectedModel: e.target.value})}>
                 <option value="CHGNet">CHGNet</option>
+                <option value="matgl_chgnet_r2scan">CHGNet r2SCAN (MatGL)</option>
                 <option value="matris_10m_oam">MatRIS (matris_10m_oam)</option>
                 <option value="matris_10m_mp">MatRIS (matris_10m_mp)</option>
               </select>
@@ -764,6 +765,7 @@ export default function App() {
               <select className="form-select" value={optParams.selectedModel}
                 onChange={e => setOptParams({...optParams, selectedModel: e.target.value})}>
                 <option value="CHGNet">CHGNet</option>
+                <option value="matgl_chgnet_r2scan">CHGNet r2SCAN (MatGL)</option>
                 <option value="matris_10m_oam">MatRIS (matris_10m_oam)</option>
                 <option value="matris_10m_mp">MatRIS (matris_10m_mp)</option>
               </select>

@@ -52,6 +52,9 @@ RUN pip3 install --default-timeout=1000 --no-cache-dir chgnet
 # 4. PyTorchをCUDA 12.8ビルドにアップグレードして Blackwell (RTX 5090) をサポート
 RUN pip3 install --no-cache-dir --upgrade torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128 --trusted-host download.pytorch.org
 
+# 4.5 Install MatGL for CHGNet r2scan support
+RUN pip3 install --no-cache-dir matgl torch-geometric
+
 # 5. Copy, compile Cython extensions, and install MatRIS (local copy includes Hugging Face download URL patches)
 COPY MatRIS /opt/MatRIS
 RUN cd /opt/MatRIS && \
