@@ -72,7 +72,8 @@ async def add_npt_jobs(
     temp_step: int = Form(...),
     eq_steps: int = Form(...),
     n_gpu_jobs: int = Form(1),
-    enable_cooling: bool = Form(False)
+    enable_cooling: bool = Form(False),
+    fmax: float = Form(0.01)
 ):
     import ase.io
     queue = get_queue()
@@ -118,7 +119,8 @@ async def add_npt_jobs(
                     "temp_range": [temp_start, temp_end, temp_step],
                     "eq_steps": eq_steps,
                     "n_gpu_jobs": effective_gpu_jobs,
-                    "enable_cooling": enable_cooling
+                    "enable_cooling": enable_cooling,
+                    "fmax": fmax
                 }
             }
             queue.append(job_info)

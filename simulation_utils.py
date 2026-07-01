@@ -13,6 +13,7 @@ import pandas as pd
 import torch
 import gc
 import os
+import json
 from joblib import Parallel, delayed
 from ase.io import read, write
 from ase.filters import ExpCellFilter
@@ -64,7 +65,7 @@ def get_calculator(model_name, use_device='cuda'):
             m_name = model_name
         pot = matgl.load_model(m_name)
         pot = pot.to(use_device)
-        calc = PESCalculator(pot)
+        calc = PESCalculator(pot, stress_unit='eV/A3')
     else:
         raise ValueError(f"Unknown or unsupported model specified: {model_name}. Supported models are 'CHGNet', 'matris_10m_oam'/'matris_10m_mp', and 'matgl_chgnet_r2scan'.")
 

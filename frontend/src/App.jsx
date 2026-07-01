@@ -43,7 +43,8 @@ export default function App() {
     tempStep: 5,
     eqSteps: 2000,
     nGpuJobs: 1,
-    enableCooling: false
+    enableCooling: false,
+    fmax: 0.01
   })
 
   const [newSpecie, setNewSpecie] = useState('')
@@ -416,6 +417,7 @@ export default function App() {
     formData.append("eq_steps", nptParams.eqSteps)
     formData.append("n_gpu_jobs", nptParams.nGpuJobs)
     formData.append("enable_cooling", nptParams.enableCooling)
+    formData.append("fmax", nptParams.fmax || 0.01)
 
     try {
       const res = await fetch('/api/jobs/npt', {
@@ -645,6 +647,16 @@ export default function App() {
                 <option value="matris_10m_oam">MatRIS (matris_10m_oam)</option>
                 <option value="matris_10m_mp">MatRIS (matris_10m_mp)</option>
               </select>
+            </div>
+
+            <div className="form-group">
+              <label>Target fmax (eV/Å)</label>
+              <input type="number" className="form-input" step="0.0001" min="0.0001" max="1.0"
+                value={nptParams.fmax}
+                onChange={e => setNptParams({...nptParams, fmax: parseFloat(e.target.value) || 0.01})} />
+              <small style={{ color: 'var(--text-muted)', display: 'block', marginTop: '4px' }}>
+                Convergence threshold for initial relaxation. Default is 0.01.
+              </small>
             </div>
 
             <div className="form-group">
