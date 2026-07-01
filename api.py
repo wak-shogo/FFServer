@@ -229,9 +229,39 @@ def get_opt_realtime():
 @app.post("/api/jobs/cancel")
 def cancel_job():
     try:
-        with open(CANCEL_FLAG_FILE, "w") as f:
-            f.write("cancel")
-        return {"message": "Cancellation flag set."}
+        import subprocess
+        # Terminate the running calculation immediately by restarting the worker process
+        subprocess.run(["supervisorctl", "restart", "worker"], check=True)
+        
+        # Clean up files
+        if os.path.exists(CURRENT_JOB_FILE):
+            try:
+                os.remove(CURRENT_JOB_FILE)
+            except Exception:
+                pass
+        if os.path.exists(REALTIME_DATA_FILE):
+            try:
+                os.remove(REALTIME_DATA_FILE)
+            except Exception:
+                pass
+        if os.path.exists(CANCEL_FLAG_FILE):
+            try:
+                os.remove(CANCEL_FLAG_FILE)
+            except Exception:
+                pass
+        if os.path.exists("/workspace/simulation_projects/opt_realtime.json"):
+            try:
+                os.remove("/workspace/simulation_projects/opt_realtime.json")
+            except Exception:
+                pass
+
+        try:
+            import notifications as notify
+            notify.send_to_discord("🛑 Job stopped and worker process restarted by user.", color=16776960)
+        except Exception:
+            pass
+
+        return {"message": "Job cancelled and worker process restarted."}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to cancel job: {str(e)}")
 

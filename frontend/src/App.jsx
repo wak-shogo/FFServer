@@ -1122,6 +1122,11 @@ export default function App() {
                           const rangeLat = maxLat - minLat || 1
                           const yMinLat = minLat - rangeLat * 0.05
                           const yMaxLat = maxLat + rangeLat * 0.05
+                          const yRangeLat = yMaxLat - yMinLat || 1
+
+                          const minTemp = chartData[0]?.calculatedTemp || 0
+                          const maxTemp = chartData[steps - 1]?.calculatedTemp || 100
+                          const rangeTemp = maxTemp - minTemp || 1
                           const getPoints = (key) => {
                             return chartData.map((d) => {
                               const x = 50 + ((d.calculatedTemp - minTemp) / rangeTemp) * 430
