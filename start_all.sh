@@ -69,7 +69,7 @@ for ((attempt=1; attempt<=max_attempts; attempt++)); do
     -e NVIDIA_VISIBLE_DEVICES=all \
     -e NVIDIA_DRIVER_CAPABILITIES=all \
     -d --name $CONTAINER_NAME \
-    -p 8888:8888 -p 8511:8501 \
+    -p 8888:8888 -p 8501:8501 \
     -v "$(pwd)":/workspace \
     -v "$(pwd)/supervisord.conf":/etc/supervisor/conf.d/app.conf \
     -v "$(pwd)/entrypoint.sh":/usr/local/bin/entrypoint.sh \
@@ -94,7 +94,7 @@ if [ "$success" = false ]; then
     
     # 2. フォールバック: GPUなしで起動
     if docker run -d --name $CONTAINER_NAME \
-      -p 8888:8888 -p 8511:8501 \
+      -p 8888:8888 -p 8501:8501 \
       -v "$(pwd)":/workspace \
       -v "$(pwd)/supervisord.conf":/etc/supervisor/conf.d/app.conf \
       -v "$(pwd)/entrypoint.sh":/usr/local/bin/entrypoint.sh \
@@ -120,4 +120,4 @@ echo "============================================="
 
 echo "Setup complete!"
 echo "Jupyter Lab: http://localhost:8888"
-echo "Streamlit App: http://localhost:8511"
+echo "Streamlit App: http://localhost:8501"
