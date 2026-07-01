@@ -136,6 +136,12 @@ body {
   font-size: 14px;
   transition: all 0.2s ease;
   width: 100%;
+  color-scheme: dark;
+}
+
+.form-select option {
+  background-color: #1e1e2e;
+  color: #f8f8f2;
 }
 
 .form-input:focus, .form-select:focus {
