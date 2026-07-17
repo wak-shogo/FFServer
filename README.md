@@ -70,6 +70,30 @@ bash start_all.sh
 
 ---
 
+## MatterSim の利用について
+
+本プロジェクトでは、環境依存を解決するため、**MatterSim** を別コンテナ (`mattersim-service`) として起動するマイクロサービス構成を採用しています。これにより、メインコンテナの環境を汚染することなく、Python 3.12+ 必須の MatterSim を安全に利用できます。
+
+### 1. ビルド
+MatterSim サービスを含めて Docker コンテナをビルドします：
+```bash
+./build_container.sh
+```
+※ このスクリプトは `nequip-olm-jupyter` と `mattersim-service` の両方の Docker イメージをビルドします。
+
+### 2. 起動
+```bash
+./start_all.sh
+```
+`start_all.sh` を実行すると、自動的に Docker ネットワーク `ffserver-net` が作成され、`mattersim_env` と `my_calc_env` の両方のコンテナが同一ネットワーク上で起動します。
+
+- **MatterSim サービス (API)**: `http://localhost:8502` でリクエストを受け付けます。
+- **メインコンテナ (FFServer)**: `MATTERSIM_SERVER_URL` 環境変数を通じて自動的に MatterSim サービスと連携します。
+
+※ `mattersim-service` イメージをビルドしていない場合でも、`start_all.sh` は自動的に Mattersim の起動をスキップして立ち上がるため、他のモデル（CHGNet など）に影響はありません。
+
+---
+
 ## 手動インストール (開発者向け)
 
 Dockerを使用せずに直接インストールする場合の手順です。

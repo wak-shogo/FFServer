@@ -47,9 +47,53 @@ if [[ "$(docker images -q $IMAGE_NAME 2> /dev/null)" == "" ]]; then
   exit 1
 fi
 
-echo "Stopping and removing old container if it exists..."
+echo "Stopping and removing old containers if they exist..."
 docker stop $CONTAINER_NAME >/dev/null 2>&1
 docker rm $CONTAINER_NAME >/dev/null 2>&1
+docker stop mattersim_env >/dev/null 2>&1
+docker rm mattersim_env >/dev/null 2>&1
+
+# Docker ネットワークの作成
+echo "Creating docker network..."
+docker network create ffserver-net >/dev/null 2>&1 || true
+
+# MatterSim イメージの存在確認と起動
+has_mattersim=false
+if [[ "$(docker images -q mattersim-service 2> /dev/null)" != "" ]]; then
+  has_mattersim=true
+fi
+
+if [ "$has_mattersim" = true ]; then
+  echo "Starting MatterSim container (mattersim_env)..."
+  mattersim_started=false
+  if [ "$has_gpu" = true ]; then
+    echo "Attempting to start MatterSim container with GPU support..."
+    if docker run --gpus all \
+      -e NVIDIA_VISIBLE_DEVICES=all \
+      -e NVIDIA_DRIVER_CAPABILITIES=all \
+      -d --name mattersim_env \
+      --network ffserver-net \
+      -p 8502:8502 \
+      mattersim-service; then
+        echo "✅ MatterSim started with GPU support."
+        mattersim_started=true
+    fi
+  fi
+
+  if [ "$mattersim_started" = false ]; then
+    echo "Starting MatterSim container in CPU-only mode..."
+    if docker run -d --name mattersim_env \
+      --network ffserver-net \
+      -p 8502:8502 \
+      mattersim-service; then
+        echo "✅ MatterSim started in CPU-only mode."
+    else
+        echo "⚠️ Warning: Could not start MatterSim container."
+    fi
+  fi
+else
+  echo "ℹ️ MatterSim image 'mattersim-service' not found. Skipping MatterSim startup."
+fi
 
 echo "Starting Docker container ($CONTAINER_NAME)..."
 
@@ -68,12 +112,15 @@ for ((attempt=1; attempt<=max_attempts; attempt++)); do
   if docker run --gpus all \
     -e NVIDIA_VISIBLE_DEVICES=all \
     -e NVIDIA_DRIVER_CAPABILITIES=all \
+    -e MATTERSIM_SERVER_URL=http://mattersim_env:8502 \
+    --network ffserver-net \
     -d --name $CONTAINER_NAME \
-    -p 8888:8888 -p 8501:8501 \
+    -p 8888:8888 -p 8511:8501 \
     -v "$(pwd)":/workspace \
     -v "$(pwd)/supervisord.conf":/etc/supervisor/conf.d/app.conf \
     -v "$(pwd)/entrypoint.sh":/usr/local/bin/entrypoint.sh \
     $IMAGE_NAME; then
+
       echo "✅ Started successfully with GPU support."
       success=true
       break
@@ -94,7 +141,9 @@ if [ "$success" = false ]; then
     
     # 2. フォールバック: GPUなしで起動
     if docker run -d --name $CONTAINER_NAME \
-      -p 8888:8888 -p 8501:8501 \
+      -e MATTERSIM_SERVER_URL=http://mattersim_env:8502 \
+      --network ffserver-net \
+      -p 8888:8888 -p 8511:8501 \
       -v "$(pwd)":/workspace \
       -v "$(pwd)/supervisord.conf":/etc/supervisor/conf.d/app.conf \
       -v "$(pwd)/entrypoint.sh":/usr/local/bin/entrypoint.sh \
@@ -120,4 +169,4 @@ echo "============================================="
 
 echo "Setup complete!"
 echo "Jupyter Lab: http://localhost:8888"
-echo "Streamlit App: http://localhost:8501"
+echo "Streamlit App: http://localhost:8511"

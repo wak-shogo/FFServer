@@ -44,7 +44,9 @@ RUN pip3 install --default-timeout=1000 --no-cache-dir \
     torchdata==0.7.1 \
     fastapi \
     uvicorn \
-    python-multipart
+    python-multipart \
+    requests
+
 
 # 3. MLFFモデルをインストール (CHGNetのみ)
 RUN pip3 install --default-timeout=1000 --no-cache-dir chgnet

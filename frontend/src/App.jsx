@@ -646,6 +646,8 @@ export default function App() {
                 <option value="matgl_chgnet_r2scan">CHGNet r2SCAN (MatGL)</option>
                 <option value="matris_10m_oam">MatRIS (matris_10m_oam)</option>
                 <option value="matris_10m_mp">MatRIS (matris_10m_mp)</option>
+                <option value="mattersim_1m">MatterSim (1M)</option>
+                <option value="mattersim_5m">MatterSim (5M)</option>
               </select>
             </div>
 
@@ -811,6 +813,8 @@ export default function App() {
                 <option value="matgl_chgnet_r2scan">CHGNet r2SCAN (MatGL)</option>
                 <option value="matris_10m_oam">MatRIS (matris_10m_oam)</option>
                 <option value="matris_10m_mp">MatRIS (matris_10m_mp)</option>
+                <option value="mattersim_1m">MatterSim (1M)</option>
+                <option value="mattersim_5m">MatterSim (5M)</option>
               </select>
             </div>
 

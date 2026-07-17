@@ -23,6 +23,48 @@ from ase.md.langevin import Langevin
 from ase.md.npt import NPT
 from ase import units, Atoms
 
+from ase.calculators.calculator import Calculator
+
+class MatterSimClientCalculator(Calculator):
+    implemented_properties = ['energy', 'forces', 'stress']
+    
+    def __init__(self, server_url=None, model_name="MatterSim-v1.0.0-1M", device="cuda", **kwargs):
+        Calculator.__init__(self, **kwargs)
+        if server_url is None:
+            server_url = os.environ.get("MATTERSIM_SERVER_URL", "http://mattersim_env:8502")
+        self.server_url = server_url
+        self.model_name = model_name
+        self.device = device
+
+    def calculate(self, atoms=None, properties=['energy'], system_changes=None):
+        from ase.calculators.calculator import all_properties
+        if system_changes is None:
+            system_changes = all_properties
+        Calculator.calculate(self, atoms, properties, system_changes)
+        
+        data = {
+            "numbers": atoms.numbers.tolist(),
+            "positions": atoms.positions.tolist(),
+            "cell": atoms.cell.tolist(),
+            "pbc": atoms.pbc.tolist(),
+            "model_name": self.model_name,
+            "device": self.device
+        }
+        
+        import requests
+        try:
+            response = requests.post(f"{self.server_url}/evaluate", json=data, timeout=600)
+
+            response.raise_for_status()
+            res_data = response.json()
+            
+            self.results['energy'] = res_data['energy']
+            self.results['forces'] = np.array(res_data['forces'])
+            self.results['stress'] = np.array(res_data['stress'])
+        except Exception as e:
+            print(f"Error calling MatterSim service at {self.server_url}: {e}")
+            raise RuntimeError(f"MatterSim evaluation failed: {e}")
+
 _CALCULATOR_CACHE = {}
 
 def get_calculator(model_name, use_device='cuda'):
@@ -66,8 +108,16 @@ def get_calculator(model_name, use_device='cuda'):
         pot = matgl.load_model(m_name)
         pot = pot.to(use_device)
         calc = PESCalculator(pot, stress_unit='eV/A3')
+    elif model_name.startswith("mattersim_") or model_name.startswith("MatterSim"):
+        if model_name == "mattersim_1m" or model_name == "MatterSim-v1.0.0-1M":
+            m_name = "MatterSim-v1.0.0-1M"
+        elif model_name == "mattersim_5m" or model_name == "MatterSim-v1.0.0-5M":
+            m_name = "MatterSim-v1.0.0-5M"
+        else:
+            m_name = model_name
+        calc = MatterSimClientCalculator(model_name=m_name, device=use_device)
     else:
-        raise ValueError(f"Unknown or unsupported model specified: {model_name}. Supported models are 'CHGNet', 'matris_10m_oam'/'matris_10m_mp', and 'matgl_chgnet_r2scan'.")
+        raise ValueError(f"Unknown or unsupported model specified: {model_name}. Supported models are 'CHGNet', 'matris_10m_oam'/'matris_10m_mp', 'matgl_chgnet_r2scan', and 'mattersim_1m'/'mattersim_5m'.")
 
     _CALCULATOR_CACHE[cache_key] = calc
     return calc
