@@ -115,7 +115,7 @@ for ((attempt=1; attempt<=max_attempts; attempt++)); do
     -e MATTERSIM_SERVER_URL=http://mattersim_env:8502 \
     --network ffserver-net \
     -d --name $CONTAINER_NAME \
-    -p 8888:8888 -p 8511:8501 \
+    -p 8888:8888 -p 8501:8501 \
     -v "$(pwd)":/workspace \
     -v "$(pwd)/supervisord.conf":/etc/supervisor/conf.d/app.conf \
     -v "$(pwd)/entrypoint.sh":/usr/local/bin/entrypoint.sh \
@@ -143,7 +143,7 @@ if [ "$success" = false ]; then
     if docker run -d --name $CONTAINER_NAME \
       -e MATTERSIM_SERVER_URL=http://mattersim_env:8502 \
       --network ffserver-net \
-      -p 8888:8888 -p 8511:8501 \
+      -p 8888:8888 -p 8501:8501 \
       -v "$(pwd)":/workspace \
       -v "$(pwd)/supervisord.conf":/etc/supervisor/conf.d/app.conf \
       -v "$(pwd)/entrypoint.sh":/usr/local/bin/entrypoint.sh \
@@ -169,4 +169,4 @@ echo "============================================="
 
 echo "Setup complete!"
 echo "Jupyter Lab: http://localhost:8888"
-echo "Streamlit App: http://localhost:8511"
+echo "Streamlit App: http://localhost:8501"
